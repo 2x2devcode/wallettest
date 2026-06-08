@@ -15,7 +15,6 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 object TransactionBuilder {
-    private const val FEE_PER_BYTE = 10L
     private const val DUST = 546L
 
     fun buildAndSign(
@@ -24,7 +23,8 @@ object TransactionBuilder {
         amount: Long,
         changeAddress: String,
         privateKey: ByteArray,
-        publicKey: ByteArray
+        publicKey: ByteArray,
+        feePerByte: Long = 10L
     ): Transaction {
         require(AddressEncoder.isValidAddress(toAddress)) { "Endereço de destino inválido" }
         require(amount > DUST) { "Valor abaixo do mínimo" }
@@ -32,7 +32,7 @@ object TransactionBuilder {
         val selected = selectUtxos(utxos, amount)
         val totalInput = selected.sumOf { it.value }
         val estimatedSize = 10 + selected.size * 148 + 2 * 34
-        val fee = estimatedSize * FEE_PER_BYTE
+        val fee = estimatedSize * feePerByte
         require(totalInput >= amount + fee) { "Saldo insuficiente" }
 
         val change = totalInput - amount - fee

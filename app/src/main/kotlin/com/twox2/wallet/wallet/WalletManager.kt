@@ -31,6 +31,20 @@ class WalletManager private constructor(context: Context) {
         return getWalletInfo(privateKey, publicKey)
     }
 
+    fun restoreFromWif(wif: String): WalletInfo {
+        val trimmed = wif.trim()
+        val (version, payload) = com.twox2.wallet.crypto.Base58.decodeCheck(trimmed)
+        require(version == com.twox2.wallet.chain.ChainParams.WIF_VERSION) { "WIF inválido" }
+        val privateKey = if (payload.size == 33 && payload[32] == 0x01.toByte()) {
+            payload.copyOfRange(0, 32)
+        } else {
+            payload
+        }
+        val publicKey = Secp256k1.publicKeyFromPrivate(privateKey)
+        saveKeys(privateKey, publicKey)
+        return getWalletInfo(privateKey, publicKey)
+    }
+
     fun loadWallet(): WalletInfo? {
         val privateKey = prefs.getString(KEY_PRIVATE, null)?.hexToBytes() ?: return null
         val publicKey = prefs.getString(KEY_PUBLIC, null)?.hexToBytes()

@@ -20,7 +20,7 @@ object SyncEngine {
         }
     }
 
-    fun startSync(context: Context) {
+    fun startAutoSync(context: Context) {
         init(context)
         scope.launch {
             manager?.startSync()
