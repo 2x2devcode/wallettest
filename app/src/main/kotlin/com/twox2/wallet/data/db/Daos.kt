@@ -29,6 +29,12 @@ interface BlockHeaderDao {
 
     @Query("SELECT * FROM block_headers ORDER BY height ASC")
     fun observeAll(): Flow<List<BlockHeaderEntity>>
+
+    @Query("DELETE FROM block_headers")
+    suspend fun deleteAll()
+
+    @Query("DELETE FROM block_headers WHERE height > :height")
+    suspend fun deleteAbove(height: Int)
 }
 
 @Dao

@@ -85,11 +85,17 @@ object P2PMessage {
         return out.toByteArray()
     }
 
+    /**
+     * Formato 2x2Coin: cada entrada é CBlock = header(80) + compactSize(vtx=0) + compactSize(sig=0).
+     */
     fun parseHeadersPayload(payload: ByteArray): List<com.twox2.wallet.chain.BlockHeader> {
         val input = BitcoinInput(payload)
         val count = input.readVarInt().toInt()
         return (0 until count).map {
-            com.twox2.wallet.chain.BlockHeader.deserialize(input)
+            val header = com.twox2.wallet.chain.BlockHeader.deserialize(input)
+            input.readVarInt() // nTx count (sempre 0 em headers)
+            input.readVarInt() // vchBlockSig length (sempre 0 em headers)
+            header
         }
     }
 
