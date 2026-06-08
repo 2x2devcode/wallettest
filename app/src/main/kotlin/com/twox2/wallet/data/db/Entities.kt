@@ -45,5 +45,7 @@ data class SyncStateEntity(
     val bestHash: String,
     val isSyncing: Boolean,
     val progress: Int,
-    val peerHost: String?
+    val peerHost: String?,
+    val statusMessage: String = "",
+    val lastError: String? = null
 )

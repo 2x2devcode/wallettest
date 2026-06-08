@@ -7,6 +7,8 @@ import com.twox2.wallet.WalletApplication
 import com.twox2.wallet.chain.ChainParams
 import com.twox2.wallet.data.db.SyncStateEntity
 import com.twox2.wallet.data.db.WalletTransactionEntity
+import com.twox2.wallet.sync.SyncEngine
+import com.twox2.wallet.sync.SyncProgress
 import com.twox2.wallet.wallet.WalletInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,6 +30,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     val syncState: StateFlow<SyncStateEntity?> = repository.syncState
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val syncProgress: StateFlow<SyncProgress> = SyncEngine.syncProgress
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SyncProgress())
 
     private val _sendState = MutableStateFlow<SendState>(SendState.Idle)
     val sendState = _sendState.asStateFlow()

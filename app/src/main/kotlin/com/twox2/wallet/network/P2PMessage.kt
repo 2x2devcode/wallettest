@@ -33,15 +33,25 @@ object P2PMessage {
         return Triple(command, size, HEADER_SIZE)
     }
 
-    fun buildVersionPayload(nonce: Long): ByteArray {
+    /** CAddress serializado para protocolo >= 31402: time(4) + services(8) + ip(16) + port(2) = 30 bytes */
+    fun buildNetworkAddress(port: Int = 0): ByteArray {
+        val out = BitcoinOutput()
+        out.writeUInt32(System.currentTimeMillis() / 1000)
+        out.writeInt64(1) // NODE_NETWORK
+        out.writeBytes(ByteArray(16)) // 0.0.0.0
+        out.writeUInt16(port)
+        return out.toByteArray()
+    }
+
+    fun buildVersionPayload(nonce: Long, startHeight: Int = 0): ByteArray {
         val out = BitcoinOutput()
         out.writeInt32(ChainParams.PROTOCOL_VERSION)
         out.writeInt64(1) // services: NODE_NETWORK
         out.writeInt64(System.currentTimeMillis() / 1000)
-        out.writeBytes(ByteArray(26)) // addr_recv
-        out.writeBytes(ByteArray(26)) // addr_from
+        out.writeBytes(buildNetworkAddress())
+        out.writeBytes(buildNetworkAddress(ChainParams.P2P_PORT))
         out.writeVarBytes(ChainParams.USER_AGENT.toByteArray())
-        out.writeInt32(0) // start_height
+        out.writeInt32(startHeight)
         out.writeByte(1) // relay
         return out.toByteArray()
     }

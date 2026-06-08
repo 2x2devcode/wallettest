@@ -35,6 +35,16 @@ fun BalanceScreen(viewModel: WalletViewModel) {
     val balance by viewModel.balance.collectAsState()
     val transactions by viewModel.transactions.collectAsState()
     val syncState by viewModel.syncState.collectAsState()
+    val syncProgress by viewModel.syncProgress.collectAsState()
+
+    val isSyncing = syncProgress.isSyncing || syncState?.isSyncing == true
+    val progress = if (syncProgress.progress > 0) syncProgress.progress else (syncState?.progress ?: 0)
+    val statusText = syncProgress.error
+        ?: syncProgress.status.takeIf { it != "Aguardando" }
+        ?: syncState?.statusMessage?.takeIf { it.isNotBlank() }
+        ?: syncState?.lastError
+        ?: syncState?.let { "Bloco ${it.bestHeight}" }
+        ?: "Não sincronizado"
 
     Column(
         modifier = Modifier
@@ -70,21 +80,20 @@ fun BalanceScreen(viewModel: WalletViewModel) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text("Blockchain", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            syncState?.let { "Bloco ${it.bestHeight}" } ?: "Não sincronizado",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        syncState?.peerHost?.let {
+                        Text(statusText, style = MaterialTheme.typography.bodySmall)
+                        syncProgress.peer?.let {
+                            Text("Peer: $it", style = MaterialTheme.typography.bodySmall)
+                        } ?: syncState?.peerHost?.let {
                             Text("Peer: $it", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     Button(
                         onClick = { viewModel.startSync() },
-                        enabled = syncState?.isSyncing != true
+                        enabled = !isSyncing
                     ) {
-                        if (syncState?.isSyncing == true) {
+                        if (isSyncing) {
                             CircularProgressIndicator(modifier = Modifier.height(18.dp))
                         } else {
                             Icon(Icons.Default.Sync, contentDescription = null)
@@ -92,11 +101,20 @@ fun BalanceScreen(viewModel: WalletViewModel) {
                         Text("Sincronizar", modifier = Modifier.padding(start = 4.dp))
                     }
                 }
-                if (syncState?.isSyncing == true) {
+                if (isSyncing || progress > 0) {
                     Spacer(modifier = Modifier.height(8.dp))
                     LinearProgressIndicator(
-                        progress = { (syncState?.progress ?: 0) / 100f },
+                        progress = { progress / 100f },
                         modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("$progress%", style = MaterialTheme.typography.bodySmall)
+                }
+                if (syncProgress.error != null || syncState?.lastError != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        syncProgress.error ?: syncState?.lastError ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }

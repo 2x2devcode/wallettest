@@ -15,42 +15,41 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class BlockchainSyncService : Service() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private lateinit var syncManager: BlockchainSyncManager
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var collectJob: kotlinx.coroutines.Job? = null
 
     override fun onCreate() {
         super.onCreate()
-        syncManager = BlockchainSyncManager(this)
+        SyncEngine.init(this)
         createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                syncManager.stopSync()
+                SyncEngine.stopSync()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
             else -> {
                 startForeground(NOTIFICATION_ID, buildNotification("Iniciando...", 0))
-                scope.launch {
-                    syncManager.syncProgress.collect { progress ->
-                        val notification = buildNotification(
-                            progress.status,
-                            progress.progress
-                        )
+                collectJob?.cancel()
+                collectJob = scope.launch {
+                    SyncEngine.syncProgress.collectLatest { progress ->
+                        val text = progress.error ?: progress.status
                         val nm = getSystemService(NotificationManager::class.java)
-                        nm.notify(NOTIFICATION_ID, notification)
+                        nm.notify(NOTIFICATION_ID, buildNotification(text, progress.progress))
+                        if (!progress.isSyncing) {
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            stopSelf()
+                        }
                     }
                 }
-                scope.launch {
-                    syncManager.startSync()
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
-                }
+                SyncEngine.startSync(this)
             }
         }
         return START_STICKY
@@ -59,6 +58,7 @@ class BlockchainSyncService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        collectJob?.cancel()
         scope.cancel()
         super.onDestroy()
     }
@@ -67,7 +67,7 @@ class BlockchainSyncService : Service() {
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.sync_channel_name),
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
             description = getString(R.string.sync_channel_description)
         }
@@ -86,7 +86,8 @@ class BlockchainSyncService : Service() {
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
             .setProgress(100, progress, progress == 0)
-            .setOngoing(true)
+            .setOngoing(progress < 100)
+            .setOnlyAlertOnce(true)
             .build()
     }
 
@@ -96,6 +97,7 @@ class BlockchainSyncService : Service() {
         const val ACTION_STOP = "com.twox2.wallet.STOP_SYNC"
 
         fun start(context: Context) {
+            SyncEngine.init(context)
             val intent = Intent(context, BlockchainSyncService::class.java)
             context.startForegroundService(intent)
         }
