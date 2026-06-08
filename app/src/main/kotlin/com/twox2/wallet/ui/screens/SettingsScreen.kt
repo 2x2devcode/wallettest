@@ -24,6 +24,28 @@ import com.twox2.wallet.ui.components.PageHeader
 fun SettingsScreen(viewModel: WalletViewModel) {
     val wallet by viewModel.wallet.collectAsState()
     val darkTheme by viewModel.darkTheme.collectAsState()
+    val syncState by viewModel.syncState.collectAsState()
+    val syncProgress by viewModel.syncProgress.collectAsState()
+    val blockCount by viewModel.blockCount.collectAsState()
+
+    val peers = when {
+        syncProgress.connectedPeers.isNotEmpty() -> syncProgress.connectedPeers
+        !syncState?.connectedPeers.isNullOrBlank() ->
+            syncState!!.connectedPeers.split(", ").filter { it.isNotBlank() }
+        syncProgress.peer != null -> listOf("${syncProgress.peer}:15190")
+        syncState?.peerHost != null -> listOf("${syncState!!.peerHost}:15190")
+        else -> emptyList()
+    }
+
+    val syncedBlocks = blockCount.takeIf { it > 0 }
+        ?: syncProgress.blockCount.takeIf { it > 0 }
+        ?: syncState?.blockCount
+        ?: 0
+
+    val lastBlockHeight = syncState?.bestHeight
+        ?: syncProgress.height
+        ?: 0
+
     Column(modifier = Modifier.fillMaxSize().padding(bottom = 16.dp)) {
         PageHeader("Configurações", "Preferências do aplicativo")
 
@@ -37,6 +59,41 @@ fun SettingsScreen(viewModel: WalletViewModel) {
                 ) {
                     Text("Tema escuro")
                     Switch(checked = darkTheme, onCheckedChange = viewModel::setDarkTheme)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Rede e Sincronização", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Rede: Mainnet")
+                Text("P2P: porta 15190")
+                Text("Sincronização: automática")
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text("Peers conectados:", style = MaterialTheme.typography.labelMedium)
+                if (peers.isEmpty()) {
+                    Text(
+                        "Nenhum peer conectado",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    peers.forEach { peer ->
+                        Text("• $peer", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Blocos sincronizados: $syncedBlocks")
+                Text("Altura do último bloco: $lastBlockHeight")
+                syncState?.bestHash?.let { hash ->
+                    Text(
+                        "Hash: ${hash.take(16)}...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
@@ -65,26 +122,9 @@ fun SettingsScreen(viewModel: WalletViewModel) {
 
         Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Rede", style = MaterialTheme.typography.titleSmall)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Rede: Mainnet")
-                Text("P2P: porta 15190")
-                Text("Sincronização: automática")
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-            Column(modifier = Modifier.padding(16.dp)) {
                 Text("Sobre", style = MaterialTheme.typography.titleSmall)
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text("2X2 Wallet v${com.twox2.wallet.BuildConfig.VERSION_NAME}")
-                Text(
-                    "Site oficial",
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
                 Text(
                     "https://2x2coin.com/",
                     color = MaterialTheme.colorScheme.primary,

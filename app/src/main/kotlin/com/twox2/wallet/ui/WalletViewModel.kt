@@ -50,6 +50,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     val syncProgress: StateFlow<SyncProgress> = SyncEngine.syncProgress
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SyncProgress())
 
+    val blockCount = repository.blockCount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     private val _sendState = MutableStateFlow<SendState>(SendState.Idle)
     val sendState = _sendState.asStateFlow()
 

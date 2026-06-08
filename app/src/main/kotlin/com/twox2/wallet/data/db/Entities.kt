@@ -47,5 +47,7 @@ data class SyncStateEntity(
     val progress: Int,
     val peerHost: String?,
     val statusMessage: String = "",
-    val lastError: String? = null
+    val lastError: String? = null,
+    val blockCount: Int = 0,
+    val connectedPeers: String = ""
 )
