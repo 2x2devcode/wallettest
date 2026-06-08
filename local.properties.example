@@ -1,0 +1,6 @@
+# Copie este arquivo para local.properties e ajuste o caminho do SDK.
+# No Linux/macOS com Android Studio, geralmente é:
+# sdk.dir=/home/SEU_USUARIO/Android/Sdk
+#
+# Ou defina ANDROID_HOME e deixe o Gradle gerar local.properties automaticamente.
+sdk.dir=/caminho/para/android-sdk
