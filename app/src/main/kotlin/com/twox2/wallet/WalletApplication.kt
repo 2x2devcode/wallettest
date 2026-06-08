@@ -10,6 +10,9 @@ class WalletApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         repository = WalletRepository(this)
-        repository.ensureWallet()
+        runCatching { repository.ensureWallet() }
+            .onFailure { error ->
+                android.util.Log.e("WalletApplication", "Falha ao inicializar carteira", error)
+            }
     }
 }
