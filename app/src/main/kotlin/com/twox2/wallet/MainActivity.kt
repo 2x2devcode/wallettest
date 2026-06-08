@@ -6,9 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallReceived
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountBalance
-import androidx.compose.material.icons.filled.CallReceived
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Wallet
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -46,8 +46,8 @@ fun WalletApp(viewModel: WalletViewModel = viewModel()) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val tabs = listOf(
         TabItem("Saldo", Icons.Default.AccountBalance),
-        TabItem("Depósitos", Icons.Default.CallReceived),
-        TabItem("Transferências", Icons.Default.Send),
+        TabItem("Depósitos", Icons.AutoMirrored.Filled.CallReceived),
+        TabItem("Transferências", Icons.AutoMirrored.Filled.Send),
         TabItem("Saques", Icons.Default.Wallet)
     )
 
