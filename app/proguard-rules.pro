@@ -1,1 +1,3 @@
 -keep class com.twox2.wallet.data.db.** { *; }
+-keep class org.bouncycastle.** { *; }
+-dontwarn org.bouncycastle.**
