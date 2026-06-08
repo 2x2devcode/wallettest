@@ -1,17 +1,14 @@
 package com.twox2.wallet.crypto
 
 import org.bouncycastle.asn1.sec.SECNamedCurves
-import org.bouncycastle.crypto.digests.SHA256Digest
+import org.bouncycastle.crypto.generators.ECKeyPairGenerator
 import org.bouncycastle.crypto.params.ECDomainParameters
+import org.bouncycastle.crypto.params.ECKeyGenerationParameters
 import org.bouncycastle.crypto.params.ECPrivateKeyParameters
 import org.bouncycastle.crypto.signers.ECDSASigner
-import org.bouncycastle.jce.ECNamedCurveTable
-import org.bouncycastle.jce.spec.ECPublicKeySpec
 import org.bouncycastle.math.ec.ECPoint
 import java.math.BigInteger
-import java.security.KeyFactory
-import java.security.KeyPairGenerator
-import java.security.spec.ECGenParameterSpec
+import java.security.SecureRandom
 
 object Secp256k1 {
     private val curveParams = SECNamedCurves.getByName("secp256k1")
@@ -23,12 +20,10 @@ object Secp256k1 {
     )
 
     fun generateKeyPair(): Pair<ByteArray, ByteArray> {
-        val gen = KeyPairGenerator.getInstance("EC")
-        gen.initialize(ECGenParameterSpec("secp256k1"))
-        val pair = gen.generateKeyPair()
-        val privateKey = normalize32(
-            (pair.private as java.security.interfaces.ECPrivateKey).s.toByteArray()
-        )
+        val generator = ECKeyPairGenerator()
+        generator.init(ECKeyGenerationParameters(domain, SecureRandom()))
+        val keyPair = generator.generateKeyPair()
+        val privateKey = normalize32((keyPair.private as ECPrivateKeyParameters).d.toByteArray())
         val publicKey = publicKeyFromPrivate(privateKey)
         return privateKey to publicKey
     }
