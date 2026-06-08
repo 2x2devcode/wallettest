@@ -17,10 +17,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-enum class FeeTier(val label: String, val feePerByte: Long) {
-    FAST("Rápida", 20L),
-    MEDIUM("Média", 10L),
-    SLOW("Lenta", 5L)
+enum class FeeTier(val label: String, val feePerByte: Long, val displayFeeCoins: Double) {
+    STANDARD("Standard", 5L, 0.001),
+    FAST("Fast", 10L, 0.002),
+    PRIORITY("Priority", 20L, 0.005)
 }
 
 class WalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -125,6 +125,22 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     fun formatBalance(satoshis: Long): String {
         val coins = satoshis.toDouble() / ChainParams.COIN
         return "%.8f %s".format(coins, ChainParams.CURRENCY)
+    }
+
+    fun formatBalanceShort(satoshis: Long): String {
+        val coins = satoshis.toDouble() / ChainParams.COIN
+        val formatted = if (coins >= 1000) {
+            "%,.2f".format(coins)
+        } else {
+            "%.2f".format(coins)
+        }
+        return "$formatted ${ChainParams.CURRENCY}"
+    }
+
+    fun formatUsdEstimate(satoshis: Long): String {
+        val coins = satoshis.toDouble() / ChainParams.COIN
+        val usd = coins * 0.10
+        return "≈ $%.2f USD".format(usd)
     }
 
     fun pendingBalance(txs: List<WalletTransactionEntity>): Long {

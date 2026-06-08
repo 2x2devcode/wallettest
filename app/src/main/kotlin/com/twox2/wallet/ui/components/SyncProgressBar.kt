@@ -10,24 +10,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.twox2.wallet.sync.SyncProgress
+import com.twox2.wallet.ui.theme.TealPrimary
 
 @Composable
 fun SyncProgressBar(syncProgress: SyncProgress, modifier: Modifier = Modifier) {
     val progress = syncProgress.progress.coerceIn(0, 100)
-    val showBar = syncProgress.isSyncing || progress in 1..99
+    if (!syncProgress.isSyncing && progress >= 100) return
 
-    if (!showBar) return
-
-    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        LinearProgressIndicator(
-            progress = { progress / 100f },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            "$progress%",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp)
-        )
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        if (syncProgress.isSyncing) {
+            LinearProgressIndicator(
+                progress = { progress / 100f },
+                modifier = Modifier.fillMaxWidth(),
+                color = TealPrimary,
+                trackColor = MaterialTheme.colorScheme.surface
+            )
+            Text(
+                "$progress%",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
     }
 }

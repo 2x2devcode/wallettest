@@ -40,7 +40,7 @@ class WalletRepository(context: Context) {
     suspend fun sendCoins(
         toAddress: String,
         amountCoins: Double,
-        feeTier: FeeTier = FeeTier.MEDIUM
+        feeTier: FeeTier = FeeTier.STANDARD
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val wallet = walletManager.loadWallet() ?: error("Carteira não encontrada")
