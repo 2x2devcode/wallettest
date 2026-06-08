@@ -19,6 +19,7 @@ class WalletRepository(context: Context) {
     val allTransactions: Flow<List<WalletTransactionEntity>> =
         walletManager.getDatabase().walletTransactionDao().observeAll()
     val syncState = walletManager.syncState
+    val blockCount = walletManager.getDatabase().blockHeaderDao().observeCount()
 
     fun hasWallet(): Boolean = walletManager.hasWallet()
 

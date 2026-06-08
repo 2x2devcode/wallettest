@@ -34,6 +34,8 @@ class BlockchainSyncManager(context: Context) {
     @Volatile
     private var running = false
 
+    private val connectedPeers = linkedSetOf<String>()
+
     suspend fun startSync() = withContext(Dispatchers.IO) {
         if (running) return@withContext
         running = true
@@ -78,6 +80,7 @@ class BlockchainSyncManager(context: Context) {
                 continue
             }
 
+            connectedPeers.add("$peer:${ChainParams.P2P_PORT}")
             updateProgress(5, isSyncing = true, peerHost = peer)
 
             if (syncHeaders(client)) {
@@ -237,14 +240,18 @@ class BlockchainSyncManager(context: Context) {
         peerHost: String? = null,
         height: Int? = null
     ) {
-        val blockHeight = height ?: blockDao.getTip()?.height ?: 0
+        val tip = blockDao.getTip()
+        val blockHeight = height ?: tip?.height ?: 0
+        val blocks = blockDao.count()
+        val peersList = connectedPeers.toList()
         _syncProgress.value = SyncProgress(
             height = blockHeight,
             progress = progress.coerceIn(0, 100),
             isSyncing = isSyncing,
-            peer = peerHost
+            peer = peerHost,
+            connectedPeers = peersList,
+            blockCount = blocks
         )
-        val tip = blockDao.getTip()
         syncDao.insert(
             SyncStateEntity(
                 bestHeight = tip?.height ?: blockHeight,
@@ -253,7 +260,9 @@ class BlockchainSyncManager(context: Context) {
                 progress = progress.coerceIn(0, 100),
                 peerHost = peerHost,
                 statusMessage = "",
-                lastError = null
+                lastError = null,
+                blockCount = blocks,
+                connectedPeers = peersList.joinToString(", ")
             )
         )
     }
@@ -267,7 +276,9 @@ data class SyncProgress(
     val height: Int = 0,
     val progress: Int = 0,
     val isSyncing: Boolean = false,
-    val peer: String? = null
+    val peer: String? = null,
+    val connectedPeers: List<String> = emptyList(),
+    val blockCount: Int = 0
 )
 
 private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
