@@ -20,12 +20,12 @@ object ChainParams {
     const val CASHADDR_PREFIX = "2x2coin"
 
     val DNS_SEEDS = listOf(
-        "seed.quimeralabs.org",
-        "seed1.quimeralabs.org",
-        "seed2.quimeralabs.org",
-        "seed3.quimeralabs.org",
-        "seed4.quimeralabs.org",
-        "seed5.quimeralabs.org"
+        "seed.2x2coin.com",
+        "seed1.2x2coin.com",
+        "seed2.2x2coin.com",
+        "seed3.2x2coin.com",
+        "seed4.2x2coin.com",
+        "seed5.2x2coin.com"
     )
 
     val FIXED_PEERS = listOf(
