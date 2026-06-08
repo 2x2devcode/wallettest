@@ -99,6 +99,18 @@ object P2PMessage {
         }
     }
 
+    /** Extrai start_height do payload da mensagem version (best height do peer). */
+    fun parseVersionStartHeight(payload: ByteArray): Int? = runCatching {
+        val input = BitcoinInput(payload)
+        input.readInt32() // protocol
+        input.readInt64() // services
+        input.readInt64() // timestamp
+        input.readBytes(30) // addrMe
+        input.readBytes(30) // addrFrom
+        input.readVarBytes() // user agent
+        input.readInt32() // start_height
+    }.getOrNull()
+
     fun parseInvPayload(payload: ByteArray): List<InventoryItem> {
         val input = BitcoinInput(payload)
         val count = input.readVarInt().toInt()

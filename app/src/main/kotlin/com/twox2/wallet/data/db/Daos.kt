@@ -24,6 +24,9 @@ interface BlockHeaderDao {
     @Query("SELECT COUNT(*) FROM block_headers")
     fun observeCount(): Flow<Int>
 
+    @Query("SELECT COALESCE(MAX(height), 0) FROM block_headers")
+    fun observeTipHeight(): Flow<Int>
+
     @Query("SELECT * FROM block_headers WHERE height = :height")
     suspend fun getByHeight(height: Int): BlockHeaderEntity?
 

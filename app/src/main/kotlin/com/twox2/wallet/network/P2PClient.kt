@@ -58,8 +58,8 @@ class P2PClient(
 
     fun sendSendHeaders() = sendMessage("sendheaders", ByteArray(0))
 
-    fun requestHeaders(locator: List<UInt256>) {
-        sendMessage("getheaders", P2PMessage.buildGetHeadersPayload(locator))
+    fun requestHeaders(locator: List<UInt256>, hashStop: UInt256 = UInt256.ZERO) {
+        sendMessage("getheaders", P2PMessage.buildGetHeadersPayload(locator, hashStop))
     }
 
     fun requestBlocks(hashes: List<UInt256>) {
@@ -95,6 +95,9 @@ class P2PClient(
         P2PMessageData(command, payload)
     }
 
+    var peerStartHeight: Int = 0
+        private set
+
     suspend fun handshake(): Boolean {
         var sentVerack = false
         var gotVerack = false
@@ -103,19 +106,25 @@ class P2PClient(
             Log.d(TAG, "[$host] recebeu: ${msg.command}")
             when (msg.command) {
                 "version" -> {
+                    P2PMessage.parseVersionStartHeight(msg.payload)?.let { peerStartHeight = it }
                     sendVerack()
                     sentVerack = true
                 }
                 "verack" -> gotVerack = true
                 "ping" -> sendMessage("pong", msg.payload)
+                "getheaders" -> sendMessage("headers", buildEmptyHeadersPayload())
                 "sendheaders", "sendcmpct", "feefilter", "addr", "inv" -> Unit
             }
             if (sentVerack && gotVerack) {
                 sendSendHeaders()
-                Log.d(TAG, "[$host] handshake OK")
+                Log.d(TAG, "[$host] handshake OK, peerHeight=$peerStartHeight")
                 return true
             }
         }
+    }
+
+    private fun buildEmptyHeadersPayload(): ByteArray {
+        return byteArrayOf(0x00) // varint 0 headers
     }
 
     companion object {

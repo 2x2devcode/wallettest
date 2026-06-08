@@ -25,7 +25,7 @@ class WalletRepository(context: Context) {
     val allTransactions: Flow<List<WalletTransactionEntity>> =
         walletManager.getDatabase().walletTransactionDao().observeAll()
     val syncState = walletManager.syncState
-    val blockCount = walletManager.getDatabase().blockHeaderDao().observeCount()
+    val blockCount = walletManager.getDatabase().blockHeaderDao().observeTipHeight()
     val sendAddresses: Flow<List<SavedAddressEntity>> = walletManager.sendAddresses
     val receiveAddresses: Flow<List<SavedAddressEntity>> = walletManager.receiveAddresses
 

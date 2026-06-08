@@ -18,6 +18,7 @@ import com.twox2.wallet.network.PeerDiscovery
 import com.twox2.wallet.wallet.WalletManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
@@ -42,9 +43,15 @@ class BlockchainSyncManager(context: Context) {
         if (running) return@withContext
         running = true
         try {
-            while (running) {
-                val success = runSyncCycle()
-                if (success) return@withContext
+            var retries = 0
+            while (running && retries < 8) {
+                when (runSyncCycle()) {
+                    SyncCycleResult.Completed -> return@withContext
+                    SyncCycleResult.RetryLater -> {
+                        retries++
+                        delay(8_000)
+                    }
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -60,45 +67,53 @@ class BlockchainSyncManager(context: Context) {
         running = false
     }
 
-    suspend fun verifySync() {
-        if (running) return
+    suspend fun verifySync() = withContext(Dispatchers.IO) {
+        if (running) return@withContext
+        val networkTip = resolveNetworkTip(null)
+        enforceChainLimits(networkTip)
+        val localHeight = blockDao.getTip()?.height ?: 0
+        if (networkTip != null && localHeight >= networkTip) {
+            updateProgress(100, isSyncing = false, height = localHeight)
+            return@withContext
+        }
         runSyncCycle()
     }
 
-    private suspend fun runSyncCycle(): Boolean {
+    private suspend fun runSyncCycle(): SyncCycleResult {
         updateProgress(0, isSyncing = true)
         if (!ensureGenesis()) {
-            Log.e(TAG, "Cadeia corrompida no genesis — resetando blocos")
+            Log.e(TAG, "Genesis inválido — resetando cadeia")
             resetChain()
             ensureGenesis()
         }
 
-        val networkTip = ExplorerApi.getBlockCount()
-        pruneInvalidBlocks(networkTip)
-
-        val localTip = blockDao.getTip()
-        if (networkTip != null && localTip != null && localTip.height >= networkTip) {
-            Log.d(TAG, "Já sincronizado: local=${localTip.height}, rede=$networkTip")
-            updateProgress(100, isSyncing = false, height = localTip.height)
-            return true
-        }
-
-        val startHeight = localTip?.height ?: 0
         val peers = PeerDiscovery.discoverPeers()
         if (peers.isEmpty()) {
             updateProgress(0, isSyncing = true)
-            return false
+            return SyncCycleResult.RetryLater
         }
 
-        for (peer in peers) {
-            if (!running) return false
-            val client = P2PClient(peer)
-            updateProgress(2, isSyncing = true)
+        var networkTip: Int? = null
 
-            if (!client.connect(startHeight)) continue
+        for (peer in peers) {
+            if (!running) return SyncCycleResult.RetryLater
+            val client = P2PClient(peer)
+
+            if (!client.connect(blockDao.getTip()?.height ?: 0)) continue
             if (!client.handshake()) {
                 client.disconnect()
                 continue
+            }
+
+            networkTip = resolveNetworkTip(client.peerStartHeight)
+            enforceChainLimits(networkTip)
+
+            val localTip = blockDao.getTip()
+            if (networkTip != null && localTip != null && localTip.height >= networkTip) {
+                connectedPeers.add("$peer:${ChainParams.P2P_PORT}")
+                updateProgress(100, isSyncing = false, peerHost = peer, height = localTip.height)
+                client.disconnect()
+                return SyncCycleResult.Completed
             }
 
             connectedPeers.add("$peer:${ChainParams.P2P_PORT}")
@@ -108,19 +123,14 @@ class BlockchainSyncManager(context: Context) {
                 is HeaderSyncResult.Success -> {
                     syncBlocks(client, networkTip)
                     val tip = blockDao.getTip()
-                    updateProgress(
-                        100,
-                        isSyncing = false,
-                        peerHost = peer,
-                        height = tip?.height ?: 0
-                    )
+                    updateProgress(100, isSyncing = false, peerHost = peer, height = tip?.height ?: 0)
                     client.disconnect()
-                    return true
+                    return SyncCycleResult.Completed
                 }
                 is HeaderSyncResult.AlreadySynced -> {
                     updateProgress(100, isSyncing = false, peerHost = peer, height = result.height)
                     client.disconnect()
-                    return true
+                    return SyncCycleResult.Completed
                 }
                 is HeaderSyncResult.Failed -> {
                     Log.w(TAG, "Falha sync headers com $peer: ${result.reason}")
@@ -129,7 +139,47 @@ class BlockchainSyncManager(context: Context) {
             }
         }
         updateProgress(0, isSyncing = true)
-        return false
+        return SyncCycleResult.RetryLater
+    }
+
+    private suspend fun resolveNetworkTip(peerHeight: Int?): Int? {
+        val explorerTip = ExplorerApi.getBlockCountWithRetry()
+        return when {
+            explorerTip != null && peerHeight != null && peerHeight > 0 ->
+                minOf(explorerTip, peerHeight)
+            explorerTip != null -> explorerTip
+            peerHeight != null && peerHeight > 0 -> peerHeight
+            else -> null
+        }
+    }
+
+    private suspend fun enforceChainLimits(networkTip: Int?) {
+        val localTip = blockDao.getTip() ?: return
+
+        if (networkTip != null && localTip.height > networkTip) {
+            Log.w(TAG, "Altura local (${localTip.height}) > rede ($networkTip), podando")
+            blockDao.deleteAbove(networkTip)
+        }
+
+        if (networkTip != null && localTip.height > networkTip + 50) {
+            Log.e(TAG, "Cadeia muito acima da rede — reset completo")
+            resetChain()
+            ensureGenesis()
+            return
+        }
+
+        val checkHeight = minOf(blockDao.getTip()?.height ?: 0, networkTip ?: localTip.height)
+        when (val result = ChainValidator.verifyStoredChain(
+            getByHeight = { blockDao.getByHeight(it) },
+            maxHeight = checkHeight
+        )) {
+            is ChainValidator.ValidationResult.Invalid -> {
+                Log.e(TAG, "Cadeia inválida: ${result.reason} — reset")
+                resetChain()
+                ensureGenesis()
+            }
+            ChainValidator.ValidationResult.Valid -> Unit
+        }
     }
 
     private suspend fun ensureGenesis(): Boolean {
@@ -153,28 +203,6 @@ class BlockchainSyncManager(context: Context) {
         return ChainValidator.validateGenesis(genesis.hash)
     }
 
-    private suspend fun pruneInvalidBlocks(networkTip: Int?) {
-        val localTip = blockDao.getTip() ?: return
-        val maxHeight = networkTip ?: localTip.height
-
-        if (networkTip != null && localTip.height > networkTip) {
-            Log.w(TAG, "Podando blocos acima da rede: local=${localTip.height}, rede=$networkTip")
-            blockDao.deleteAbove(networkTip)
-        }
-
-        val checkHeight = minOf(blockDao.getTip()?.height ?: 0, maxHeight)
-        when (val result = ChainValidator.verifyStoredChain(
-            getByHeight = { blockDao.getByHeight(it) },
-            maxHeight = checkHeight
-        )) {
-            is ChainValidator.ValidationResult.Invalid -> {
-                Log.e(TAG, "Cadeia inválida: ${result.reason} — resetando")
-                resetChain()
-            }
-            ChainValidator.ValidationResult.Valid -> Unit
-        }
-    }
-
     private suspend fun resetChain() {
         blockDao.deleteAll()
         syncDao.insert(
@@ -196,11 +224,15 @@ class BlockchainSyncManager(context: Context) {
             return HeaderSyncResult.AlreadySynced(tip.height)
         }
 
+        val hashStop = networkTip?.let { ExplorerApi.getBlockHash(it) }
+            ?.let { UInt256.fromHex(it) }
+            ?: UInt256.ZERO
+
         var locator = listOf(UInt256.fromHex(tip.hash))
-        var totalDownloaded = 0
+        var downloadedInCycle = 0
 
         while (running) {
-            client.requestHeaders(locator)
+            client.requestHeaders(locator, hashStop)
             var done = false
 
             while (running) {
@@ -220,7 +252,7 @@ class BlockchainSyncManager(context: Context) {
                                 header, prevHash, nextHeight, networkTip
                             )) {
                                 is ChainValidator.ValidationResult.Invalid -> {
-                                    Log.e(TAG, "Header rejeitado na altura $nextHeight: ${validation.reason}")
+                                    Log.e(TAG, "Header rejeitado altura $nextHeight: ${validation.reason}")
                                     return HeaderSyncResult.Failed(validation.reason)
                                 }
                                 ChainValidator.ValidationResult.Valid -> Unit
@@ -239,7 +271,7 @@ class BlockchainSyncManager(context: Context) {
                             blockDao.insert(entity)
                             tip = entity
                             prevHash = entity.hash
-                            totalDownloaded++
+                            downloadedInCycle++
 
                             if (networkTip != null && nextHeight >= networkTip) {
                                 done = true
@@ -250,7 +282,7 @@ class BlockchainSyncManager(context: Context) {
                         val progress = if (networkTip != null && networkTip > 0) {
                             minOf(50, (tip.height * 50) / networkTip)
                         } else {
-                            minOf(50, 5 + totalDownloaded / 5)
+                            minOf(50, 5 + downloadedInCycle / 5)
                         }
                         updateProgress(progress, isSyncing = true, height = tip.height)
                         locator = listOf(UInt256.fromHex(tip.hash))
@@ -267,11 +299,14 @@ class BlockchainSyncManager(context: Context) {
             if (done) break
         }
 
-        val finalTip = blockDao.getTip()?.height ?: 0
-        return if (finalTip > 0) {
-            HeaderSyncResult.Success
-        } else {
-            HeaderSyncResult.Failed("Nenhum header válido recebido")
+        val finalHeight = blockDao.getTip()?.height ?: 0
+        return when {
+            networkTip != null && finalHeight >= networkTip ->
+                HeaderSyncResult.AlreadySynced(finalHeight)
+            downloadedInCycle > 0 -> HeaderSyncResult.Success
+            networkTip != null && finalHeight >= networkTip - 1 ->
+                HeaderSyncResult.AlreadySynced(finalHeight)
+            else -> HeaderSyncResult.Failed("Nenhum header novo recebido")
         }
     }
 
@@ -293,7 +328,7 @@ class BlockchainSyncManager(context: Context) {
                         val block = Block.deserialize(msg.payload)
                         val blockHash = block.header.getHash().toHex()
                         if (!blockHash.equals(header.hash, ignoreCase = true)) {
-                            Log.e(TAG, "Hash do bloco $current não coincide: esperado ${header.hash}, recebido $blockHash")
+                            Log.e(TAG, "Hash bloco $current inválido")
                             break
                         }
                         processBlock(block, current, watchScripts)
@@ -356,7 +391,6 @@ class BlockchainSyncManager(context: Context) {
     ) {
         val tip = blockDao.getTip()
         val blockHeight = height ?: tip?.height ?: 0
-        val blocks = blockDao.count()
         val peersList = connectedPeers.toList()
         _syncProgress.value = SyncProgress(
             height = blockHeight,
@@ -364,7 +398,7 @@ class BlockchainSyncManager(context: Context) {
             isSyncing = isSyncing,
             peer = peerHost,
             connectedPeers = peersList,
-            blockCount = blocks
+            blockCount = blockHeight
         )
         syncDao.insert(
             SyncStateEntity(
@@ -375,10 +409,15 @@ class BlockchainSyncManager(context: Context) {
                 peerHost = peerHost,
                 statusMessage = "",
                 lastError = null,
-                blockCount = blocks,
+                blockCount = tip?.height ?: blockHeight,
                 connectedPeers = peersList.joinToString(", ")
             )
         )
+    }
+
+    private sealed class SyncCycleResult {
+        data object Completed : SyncCycleResult()
+        data object RetryLater : SyncCycleResult()
     }
 
     private sealed class HeaderSyncResult {
