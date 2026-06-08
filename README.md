@@ -54,17 +54,31 @@ app/
 
 ## Build
 
+### Opção 1 — Android Studio (recomendado)
+
+Abra o projeto no Android Studio. O SDK é detectado automaticamente em `~/Android/Sdk`.
+
+### Opção 2 — Linha de comando
+
 ```bash
-# Clone o repositório
 git clone https://github.com/2x2devcode/wallettest.git
 cd wallettest
 
-# Configure o SDK (ajuste o caminho)
-echo "sdk.dir=$ANDROID_HOME" > local.properties
+# Se já tiver o SDK (ex.: Android Studio):
+export ANDROID_HOME=$HOME/Android/Sdk   # Linux
+# export ANDROID_HOME=$HOME/Library/Android/sdk  # macOS
+
+# Ou instale o SDK automaticamente (Linux):
+chmod +x scripts/setup-android-sdk.sh
+./scripts/setup-android-sdk.sh
 
 # Build debug
 ./gradlew assembleDebug
 ```
+
+O Gradle tenta localizar o SDK automaticamente via `ANDROID_HOME`, `ANDROID_SDK_ROOT` ou caminhos comuns. Se `local.properties` estiver vazio, ele será recriado na primeira build.
+
+Copie `local.properties.example` para `local.properties` apenas se precisar definir o caminho manualmente.
 
 O APK será gerado em `app/build/outputs/apk/debug/app-debug.apk`.
 
