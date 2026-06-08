@@ -1,6 +1,7 @@
 package com.twox2.wallet.sync
 
 import android.content.Context
+import android.util.Log
 import com.twox2.wallet.chain.Block
 import com.twox2.wallet.chain.BlockHeader
 import com.twox2.wallet.chain.ChainParams
@@ -35,49 +36,65 @@ class BlockchainSyncManager(context: Context) {
     private var running = false
 
     suspend fun startSync() = withContext(Dispatchers.IO) {
-        if (running) return@withContext
+        if (running) {
+            Log.d(TAG, "Sync já em execução")
+            return@withContext
+        }
         running = true
+        var connectedPeer: String? = null
         try {
-            updateSyncState(isSyncing = true, progress = 0)
+            setStatus("Iniciando sincronização...", isSyncing = true, progress = 0)
             ensureGenesis()
+            val startHeight = blockDao.getTip()?.height ?: 0
 
             val peers = PeerDiscovery.discoverPeers()
             if (peers.isEmpty()) {
-                _syncProgress.value = SyncProgress(error = "Nenhum peer encontrado")
+                failSync("Nenhum peer encontrado na rede 2x2Coin")
                 return@withContext
             }
+
+            setStatus("Conectando a ${peers.size} peers...", isSyncing = true, progress = 5)
 
             for (peer in peers) {
                 if (!running) break
                 val client = P2PClient(peer)
-                if (!client.connect()) continue
+                setStatus("Tentando $peer:${ChainParams.P2P_PORT}...", isSyncing = true, progress = 5)
+
+                if (!client.connect(startHeight)) continue
                 if (!client.handshake()) {
                     client.disconnect()
                     continue
                 }
 
-                _syncProgress.value = _syncProgress.value.copy(peer = peer, status = "Conectado a $peer")
-                updateSyncState(isSyncing = true, peerHost = peer)
+                connectedPeer = peer
+                setStatus("Conectado a $peer", isSyncing = true, progress = 10, peerHost = peer)
 
-                if (syncHeaders(client)) {
+                val headersOk = syncHeaders(client)
+                if (headersOk) {
                     syncBlocks(client)
+                    val tip = blockDao.getTip()
+                    setStatus(
+                        "Sincronização concluída — bloco ${tip?.height ?: 0}",
+                        isSyncing = false,
+                        progress = 100,
+                        peerHost = peer
+                    )
                     client.disconnect()
-                    break
+                    return@withContext
                 }
                 client.disconnect()
             }
 
-            updateSyncState(isSyncing = false, progress = 100)
-            _syncProgress.value = _syncProgress.value.copy(
-                status = "Sincronização concluída",
-                progress = 100,
-                isSyncing = false
-            )
+            if (connectedPeer == null) {
+                failSync("Não foi possível conectar aos peers da rede. Verifique internet e firewall.")
+            } else {
+                failSync("Conexão estabelecida mas nenhum cabeçalho recebido.")
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _syncProgress.value = _syncProgress.value.copy(error = e.message, isSyncing = false)
-            updateSyncState(isSyncing = false, progress = _syncProgress.value.progress)
+            Log.e(TAG, "Erro na sincronização", e)
+            failSync(e.message ?: "Erro desconhecido na sincronização")
         } finally {
             running = false
         }
@@ -109,16 +126,25 @@ class BlockchainSyncManager(context: Context) {
         var tip = blockDao.getTip() ?: return false
         var locator = listOf(UInt256.fromHex(tip.hash))
         var totalDownloaded = 0
+        var emptyResponses = 0
 
         repeat(500) {
             if (!running) return false
             client.requestHeaders(locator)
-            repeat(20) {
+
+            var received = false
+            repeat(30) {
                 val msg = client.readMessage() ?: return@repeat
                 when (msg.command) {
                     "headers" -> {
                         val headers = P2PMessage.parseHeadersPayload(msg.payload)
-                        if (headers.isEmpty()) return true
+                        if (headers.isEmpty()) {
+                            emptyResponses++
+                            Log.d(TAG, "Peer retornou 0 headers (fim da chain ou já sincronizado)")
+                            return true
+                        }
+                        emptyResponses = 0
+                        received = true
                         var prevHash = tip.hash
                         headers.forEach { header ->
                             val entity = BlockHeaderEntity(
@@ -136,29 +162,31 @@ class BlockchainSyncManager(context: Context) {
                             prevHash = entity.hash
                             totalDownloaded++
                         }
-                        val progress = minOf(50, totalDownloaded / 10)
-                        _syncProgress.value = _syncProgress.value.copy(
-                            height = tip.height,
+                        val progress = minOf(50, 10 + totalDownloaded / 5)
+                        setStatus(
+                            "Baixando cabeçalhos: bloco ${tip.height}",
+                            isSyncing = true,
                             progress = progress,
-                            status = "Baixando cabeçalhos: bloco ${tip.height}"
+                            peerHost = null
                         )
-                        updateSyncState(isSyncing = true, progress = progress)
                         locator = listOf(UInt256.fromHex(tip.hash))
-                        return@repeat
                     }
                     "ping" -> client.sendMessage("pong", msg.payload)
+                    "inv" -> Unit
                 }
             }
-            delay(100)
+
+            if (emptyResponses > 0) return true
+            if (!received) delay(200)
         }
-        return true
+        return totalDownloaded > 0 || (blockDao.getTip()?.height ?: 0) > 0
     }
 
     private suspend fun syncBlocks(client: P2PClient) {
         val watchScript = walletManager.getReceiveScriptPubKey().toHex()
         val tip = blockDao.getTip() ?: return
-        val batchSize = 20
-        var current = maxOf(0, tip.height - 200)
+        val batchSize = 10
+        var current = 1
 
         while (current <= tip.height && running) {
             val header = blockDao.getByHeight(current) ?: break
@@ -172,18 +200,18 @@ class BlockchainSyncManager(context: Context) {
                         processBlock(block, current, watchScript)
                     }
                     "ping" -> client.sendMessage("pong", msg.payload)
+                    "inv", "headers" -> Unit
                 }
             }
 
-            val progress = 50 + ((current.toFloat() / tip.height) * 50).toInt()
-            _syncProgress.value = _syncProgress.value.copy(
-                height = current,
-                progress = progress,
-                status = "Baixando blocos: $current / ${tip.height}"
+            val progress = 50 + ((current.toFloat() / tip.height.coerceAtLeast(1)) * 50).toInt()
+            setStatus(
+                "Baixando blocos: $current / ${tip.height}",
+                isSyncing = true,
+                progress = progress
             )
-            updateSyncState(isSyncing = true, progress = progress)
             current += batchSize
-            delay(50)
+            delay(100)
         }
     }
 
@@ -219,13 +247,27 @@ class BlockchainSyncManager(context: Context) {
             }
 
             tx.inputs.forEach { input ->
-                val prevHash = input.prevTxHash.toHex()
-                utxoDao.markSpent(prevHash, input.prevIndex.toInt())
+                utxoDao.markSpent(input.prevTxHash.toHex(), input.prevIndex.toInt())
             }
         }
     }
 
-    private suspend fun updateSyncState(isSyncing: Boolean, progress: Int = 0, peerHost: String? = null) {
+    private suspend fun setStatus(
+        message: String,
+        isSyncing: Boolean,
+        progress: Int,
+        peerHost: String? = null,
+        error: String? = null
+    ) {
+        Log.d(TAG, message)
+        _syncProgress.value = SyncProgress(
+            height = blockDao.getTip()?.height ?: 0,
+            progress = progress,
+            status = message,
+            peer = peerHost,
+            isSyncing = isSyncing,
+            error = error
+        )
         val tip = blockDao.getTip()
         syncDao.insert(
             SyncStateEntity(
@@ -233,9 +275,19 @@ class BlockchainSyncManager(context: Context) {
                 bestHash = tip?.hash ?: ChainParams.GENESIS_HASH,
                 isSyncing = isSyncing,
                 progress = progress,
-                peerHost = peerHost
+                peerHost = peerHost,
+                statusMessage = message,
+                lastError = error
             )
         )
+    }
+
+    private suspend fun failSync(message: String) {
+        setStatus(message, isSyncing = false, progress = 0, error = message)
+    }
+
+    companion object {
+        private const val TAG = "TwoX2Sync"
     }
 }
 

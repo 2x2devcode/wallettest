@@ -1,6 +1,7 @@
 package com.twox2.wallet
 
 import android.app.Application
+import com.twox2.wallet.sync.SyncEngine
 import com.twox2.wallet.wallet.WalletRepository
 
 class WalletApplication : Application() {
@@ -9,6 +10,7 @@ class WalletApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        SyncEngine.init(this)
         repository = WalletRepository(this)
     }
 }

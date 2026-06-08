@@ -14,6 +14,11 @@ class BitcoinOutput {
         buffer.addAll(data.toList())
     }
 
+    fun writeUInt16(value: Int) {
+        writeByte((value shr 8).toByte())
+        writeByte((value and 0xFF).toByte())
+    }
+
     fun writeUInt32(value: Long) {
         val bb = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN)
         bb.putInt(value.toInt())

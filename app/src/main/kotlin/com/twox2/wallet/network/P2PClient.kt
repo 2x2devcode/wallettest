@@ -1,7 +1,6 @@
 package com.twox2.wallet.network
 
-import com.twox2.wallet.chain.Block
-import com.twox2.wallet.chain.BlockHeader
+import android.util.Log
 import com.twox2.wallet.chain.ChainParams
 import com.twox2.wallet.chain.Transaction
 import com.twox2.wallet.chain.UInt256
@@ -25,7 +24,7 @@ class P2PClient(
 
     val isConnected: Boolean get() = socket?.isConnected == true && socket?.isClosed == false
 
-    suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun connect(startHeight: Int = 0): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val s = Socket()
             s.soTimeout = 30_000
@@ -34,8 +33,11 @@ class P2PClient(
             socket = s
             input = BufferedInputStream(s.getInputStream())
             output = BufferedOutputStream(s.getOutputStream())
-            sendMessage("version", P2PMessage.buildVersionPayload(nonce.get()))
+            sendMessage("version", P2PMessage.buildVersionPayload(nonce.get(), startHeight))
+            Log.d(TAG, "Conectado a $host:$port")
             true
+        }.onFailure {
+            Log.w(TAG, "Falha ao conectar $host:$port - ${it.message}")
         }.getOrElse { false }
     }
 
@@ -53,6 +55,8 @@ class P2PClient(
     }
 
     fun sendVerack() = sendMessage("verack", ByteArray(0))
+
+    fun sendSendHeaders() = sendMessage("sendheaders", ByteArray(0))
 
     fun requestHeaders(locator: List<UInt256>) {
         sendMessage("getheaders", P2PMessage.buildGetHeadersPayload(locator))
@@ -80,6 +84,7 @@ class P2PClient(
         }
         val parsed = P2PMessage.parseHeader(header) ?: return@withContext null
         val (command, size, _) = parsed
+        if (size > 32 * 1024 * 1024) return@withContext null
         val payload = ByteArray(size)
         read = 0
         while (read < size) {
@@ -91,17 +96,32 @@ class P2PClient(
     }
 
     suspend fun handshake(): Boolean {
-        repeat(10) {
+        var sentVerack = false
+        var gotVerack = false
+        repeat(40) {
             val msg = readMessage() ?: return false
+            Log.d(TAG, "[$host] recebeu: ${msg.command}")
             when (msg.command) {
                 "version" -> {
                     sendVerack()
+                    sentVerack = true
                 }
-                "verack" -> return true
+                "verack" -> gotVerack = true
                 "ping" -> sendMessage("pong", msg.payload)
+                "sendheaders", "sendcmpct", "feefilter", "addr", "inv" -> Unit
+            }
+            if (sentVerack && gotVerack) {
+                sendSendHeaders()
+                Log.d(TAG, "[$host] handshake OK")
+                return true
             }
         }
+        Log.w(TAG, "[$host] handshake falhou (verack=$gotVerack)")
         return false
+    }
+
+    companion object {
+        private const val TAG = "TwoX2P2P"
     }
 }
 

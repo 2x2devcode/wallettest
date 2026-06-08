@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         WalletTransactionEntity::class,
         SyncStateEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class WalletDatabase : RoomDatabase() {
@@ -31,7 +31,8 @@ abstract class WalletDatabase : RoomDatabase() {
                     context.applicationContext,
                     WalletDatabase::class.java,
                     "2x2_wallet.db"
-                ).build().also { instance = it }
+                ).fallbackToDestructiveMigration()
+                    .build().also { instance = it }
             }
         }
     }
