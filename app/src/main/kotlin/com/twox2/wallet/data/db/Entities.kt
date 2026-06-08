@@ -51,3 +51,15 @@ data class SyncStateEntity(
     val blockCount: Int = 0,
     val connectedPeers: String = ""
 )
+
+@Entity(tableName = "saved_addresses")
+data class SavedAddressEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val address: String,
+    val cashAddress: String,
+    val type: String,
+    val isDefault: Boolean = false,
+    val privateKeyHex: String? = null,
+    val publicKeyHex: String? = null
+)

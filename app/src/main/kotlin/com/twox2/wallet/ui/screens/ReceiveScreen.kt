@@ -15,20 +15,29 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.twox2.wallet.ui.WalletViewModel
+import com.twox2.wallet.ui.components.AddressBookSection
 import com.twox2.wallet.ui.components.QrCodeImage
 import com.twox2.wallet.ui.components.WalletHeader
 import com.twox2.wallet.ui.theme.BackgroundDark
@@ -46,12 +56,18 @@ import com.twox2.wallet.ui.theme.TextMuted
 
 @Composable
 fun ReceiveScreen(viewModel: WalletViewModel, onBack: (() -> Unit)? = null) {
-    val wallet by viewModel.wallet.collectAsState()
+    val receiveAddresses by viewModel.receiveAddresses.collectAsState()
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var newAddressName by remember { mutableStateOf("") }
     val context = LocalContext.current
-    val address = wallet?.cashAddress ?: ""
+
+    val selected = viewModel.selectedReceiveAddress(receiveAddresses)
+    val displayAddress = selected?.cashAddress?.ifBlank { selected.address } ?: ""
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (onBack != null) {
@@ -65,8 +81,33 @@ fun ReceiveScreen(viewModel: WalletViewModel, onBack: (() -> Unit)? = null) {
             WalletHeader(title = "Receive 2X2Coin", showMenu = false)
         }
 
-        if (address.isNotBlank()) {
-            Spacer(modifier = Modifier.height(24.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(onClick = { showCreateDialog = true }) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text("Novo endereço", modifier = Modifier.padding(start = 4.dp))
+            }
+        }
+
+        AddressBookSection(
+            title = "Agenda de endereços de depósito",
+            addresses = receiveAddresses,
+            selectedId = selected?.id,
+            onSelect = { viewModel.selectReceiveAddress(it.id) },
+            onDelete = { viewModel.deleteSavedAddress(it) }
+        )
+
+        if (displayAddress.isNotBlank()) {
+            Spacer(modifier = Modifier.height(16.dp))
+
+            selected?.name?.let { name ->
+                Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             Box(
                 modifier = Modifier
@@ -76,7 +117,7 @@ fun ReceiveScreen(viewModel: WalletViewModel, onBack: (() -> Unit)? = null) {
                     .padding(16.dp),
                 contentAlignment = Alignment.Center
             ) {
-                QrCodeImage(data = address, modifier = Modifier.fillMaxSize())
+                QrCodeImage(data = displayAddress, modifier = Modifier.fillMaxSize())
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -90,7 +131,7 @@ fun ReceiveScreen(viewModel: WalletViewModel, onBack: (() -> Unit)? = null) {
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                shortenAddress(address),
+                shortenAddress(displayAddress),
                 style = MaterialTheme.typography.bodyLarge.copy(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Medium
@@ -110,7 +151,7 @@ fun ReceiveScreen(viewModel: WalletViewModel, onBack: (() -> Unit)? = null) {
             ) {
                 OutlinedButton(
                     onClick = {
-                        copyToClipboard(context, address)
+                        copyToClipboard(context, displayAddress)
                         viewModel.showMessage("Address copied")
                     },
                     modifier = Modifier.weight(1f),
@@ -122,7 +163,7 @@ fun ReceiveScreen(viewModel: WalletViewModel, onBack: (() -> Unit)? = null) {
                     Text("Copy Address", modifier = Modifier.padding(start = 6.dp))
                 }
                 Button(
-                    onClick = { shareAddress(context, address) },
+                    onClick = { shareAddress(context, displayAddress) },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -156,6 +197,36 @@ fun ReceiveScreen(viewModel: WalletViewModel, onBack: (() -> Unit)? = null) {
                 )
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+
+    if (showCreateDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateDialog = false },
+            title = { Text("Novo endereço de depósito") },
+            text = {
+                OutlinedTextField(
+                    value = newAddressName,
+                    onValueChange = { newAddressName = it },
+                    label = { Text("Nome") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.createReceiveAddress(newAddressName)
+                        showCreateDialog = false
+                        newAddressName = ""
+                    },
+                    enabled = newAddressName.isNotBlank()
+                ) { Text("Criar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateDialog = false }) { Text("Cancelar") }
+            }
+        )
     }
 }
 

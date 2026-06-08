@@ -58,6 +58,11 @@ class BlockchainSyncManager(context: Context) {
         running = false
     }
 
+    suspend fun verifySync() {
+        if (running) return
+        runSyncCycle()
+    }
+
     private suspend fun runSyncCycle(): Boolean {
         updateProgress(0, isSyncing = true)
         ensureGenesis()
@@ -169,7 +174,7 @@ class BlockchainSyncManager(context: Context) {
     }
 
     private suspend fun syncBlocks(client: P2PClient) {
-        val watchScript = walletManager.getReceiveScriptPubKey().toHex()
+        val watchScripts = walletManager.getAllReceiveScriptPubKeys().toSet()
         val tip = blockDao.getTip() ?: return
         val batchSize = 10
         var current = 1
@@ -183,7 +188,7 @@ class BlockchainSyncManager(context: Context) {
                 when (msg.command) {
                     "block" -> {
                         val block = Block.deserialize(msg.payload)
-                        processBlock(block, current, watchScript)
+                        processBlock(block, current, watchScripts)
                         break
                     }
                     "ping" -> client.sendMessage("pong", msg.payload)
@@ -197,19 +202,20 @@ class BlockchainSyncManager(context: Context) {
         }
     }
 
-    private suspend fun processBlock(block: Block, height: Int, watchScript: String) {
+    private suspend fun processBlock(block: Block, height: Int, watchScripts: Set<String>) {
         block.transactions.forEach { tx ->
             if (tx.isCoinBase()) return@forEach
             val txHash = tx.getHash().toHex()
 
             tx.outputs.forEachIndexed { index, output ->
-                if (output.scriptPubKey.toHex() == watchScript) {
+                val scriptHex = output.scriptPubKey.toHex()
+                if (scriptHex in watchScripts) {
                     utxoDao.insert(
                         UtxoEntity(
                             txHash = txHash,
                             outputIndex = index,
                             value = output.value,
-                            scriptPubKey = watchScript,
+                            scriptPubKey = scriptHex,
                             blockHeight = height
                         )
                     )

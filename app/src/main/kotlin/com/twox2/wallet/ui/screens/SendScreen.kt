@@ -19,14 +19,19 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,23 +48,31 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.twox2.wallet.ui.AddressValidation
 import com.twox2.wallet.ui.FeeTier
 import com.twox2.wallet.ui.SendState
 import com.twox2.wallet.ui.WalletViewModel
+import com.twox2.wallet.ui.components.AddressBookSection
 import com.twox2.wallet.ui.components.GradientButton
 import com.twox2.wallet.ui.components.WalletHeader
+import com.twox2.wallet.ui.theme.GreenAccent
 import com.twox2.wallet.ui.theme.SurfaceDark
 import com.twox2.wallet.ui.theme.TealPrimary
 import com.twox2.wallet.ui.theme.TextMuted
+import com.twox2.wallet.wallet.WalletRepository
 
 @Composable
 fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
     var address by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var selectedFee by remember { mutableStateOf(FeeTier.STANDARD) }
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var saveName by remember { mutableStateOf("") }
     val sendState by viewModel.sendState.collectAsState()
     val balance by viewModel.balance.collectAsState()
+    val sendAddresses by viewModel.sendAddresses.collectAsState()
 
+    val addressValidation = viewModel.validateAddress(address)
     val amountValue = amount.replace(",", ".").toDoubleOrNull() ?: 0.0
     val feeCoins = selectedFee.displayFeeCoins
     val total = amountValue + feeCoins
@@ -94,10 +107,51 @@ fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
             }
         )
 
+        when (addressValidation) {
+            AddressValidation.VALID -> Text(
+                "Endereço verificado",
+                color = GreenAccent,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+            AddressValidation.INVALID -> Text(
+                "Endereço inválido",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+            AddressValidation.NONE -> Unit
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(
+                onClick = { showSaveDialog = true },
+                enabled = addressValidation == AddressValidation.VALID
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text("Salvar endereço", modifier = Modifier.padding(start = 4.dp))
+            }
+        }
+
+        AddressBookSection(
+            title = "Agenda de endereços",
+            addresses = sendAddresses,
+            selectedId = sendAddresses.find { it.address == address || it.cashAddress == address }?.id,
+            onSelect = { entry ->
+                address = entry.cashAddress.ifBlank { entry.address }
+            },
+            onDelete = { viewModel.deleteSavedAddress(it) }
+        )
+
         Spacer(modifier = Modifier.height(16.dp))
 
         StyledInputField(
-            label = "Amount",
+            label = "Amount (mín. ${WalletRepository.MIN_SEND_COINS} / máx. ${WalletRepository.MAX_SEND_COINS.toInt()} 2X2)",
             value = amount,
             onValueChange = { amount = it },
             placeholder = "0.00",
@@ -109,7 +163,9 @@ fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
                             .clip(RoundedCornerShape(8.dp))
                             .border(1.dp, TealPrimary, RoundedCornerShape(8.dp))
                             .clickable {
-                                amount = viewModel.formatBalanceShort(balance).replace(" 2X2", "")
+                                val maxCoins = balance.toDouble() / com.twox2.wallet.chain.ChainParams.COIN
+                                val capped = minOf(maxCoins, WalletRepository.MAX_SEND_COINS)
+                                amount = "%.2f".format(capped)
                             }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
@@ -188,6 +244,34 @@ fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+    }
+
+    if (showSaveDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveDialog = false },
+            title = { Text("Salvar endereço") },
+            text = {
+                OutlinedTextField(
+                    value = saveName,
+                    onValueChange = { saveName = it },
+                    label = { Text("Nome") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.saveSendAddress(saveName, address)
+                        showSaveDialog = false
+                        saveName = ""
+                    },
+                    enabled = saveName.isNotBlank()
+                ) { Text("Salvar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveDialog = false }) { Text("Cancelar") }
+            }
+        )
     }
 }
 

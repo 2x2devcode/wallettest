@@ -75,3 +75,27 @@ interface SyncStateDao {
     @Query("SELECT * FROM sync_state WHERE id = 1")
     suspend fun get(): SyncStateEntity?
 }
+
+@Dao
+interface SavedAddressDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(address: SavedAddressEntity): Long
+
+    @Update
+    suspend fun update(address: SavedAddressEntity)
+
+    @Query("SELECT * FROM saved_addresses WHERE type = :type ORDER BY isDefault DESC, name ASC")
+    fun observeByType(type: String): Flow<List<SavedAddressEntity>>
+
+    @Query("SELECT * FROM saved_addresses WHERE type = :type ORDER BY isDefault DESC, name ASC")
+    suspend fun getByType(type: String): List<SavedAddressEntity>
+
+    @Query("SELECT * FROM saved_addresses WHERE id = :id")
+    suspend fun getById(id: Long): SavedAddressEntity?
+
+    @Query("DELETE FROM saved_addresses WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("UPDATE saved_addresses SET isDefault = 0 WHERE type = :type")
+    suspend fun clearDefault(type: String)
+}

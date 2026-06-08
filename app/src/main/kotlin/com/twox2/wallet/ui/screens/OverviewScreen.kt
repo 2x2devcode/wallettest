@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -38,7 +38,7 @@ import com.twox2.wallet.R
 import com.twox2.wallet.ui.WalletViewModel
 import com.twox2.wallet.ui.components.DashboardTransactionItem
 import com.twox2.wallet.ui.components.GradientButton
-import com.twox2.wallet.ui.components.SyncProgressBar
+import com.twox2.wallet.ui.components.SyncStatusText
 import com.twox2.wallet.ui.components.WalletHeader
 import com.twox2.wallet.ui.theme.CardGradientEnd
 import com.twox2.wallet.ui.theme.CardGradientStart
@@ -60,15 +60,20 @@ fun OverviewScreen(
     val balance by viewModel.balance.collectAsState()
     val transactions by viewModel.transactions.collectAsState()
     val syncProgress by viewModel.syncProgress.collectAsState()
+    val isVerifying by viewModel.isVerifying.collectAsState()
     val blockCount by viewModel.blockCount.collectAsState()
 
     val isConnected = syncProgress.connectedPeers.isNotEmpty() || syncProgress.isSyncing
     val blockHeight = syncProgress.height.takeIf { it > 0 } ?: blockCount
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+    ) {
         WalletHeader(isConnected = isConnected)
 
-        SyncProgressBar(syncProgress)
+        SyncStatusText(syncProgress, isVerifying)
 
         BalanceCard(
             balance = viewModel.formatBalanceShort(balance),
@@ -129,11 +134,11 @@ fun OverviewScreen(
                 color = TextMuted
             )
         } else {
-            LazyColumn(
+            Column(
                 modifier = Modifier.padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(transactions.take(3)) { tx ->
+                transactions.take(3).forEach { tx ->
                     DashboardTransactionItem(
                         tx = tx,
                         formattedAmount = viewModel.formatBalanceShort(kotlin.math.abs(tx.amount))
@@ -141,6 +146,8 @@ fun OverviewScreen(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
