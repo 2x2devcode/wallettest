@@ -5,6 +5,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.twox2.wallet.crypto.AddressEncoder
 import com.twox2.wallet.crypto.Secp256k1
+import com.twox2.wallet.data.db.SavedAddressEntity
 import com.twox2.wallet.data.db.WalletDatabase
 import kotlinx.coroutines.flow.Flow
 
@@ -22,6 +23,8 @@ class WalletManager private constructor(context: Context) {
     val balance: Flow<Long> = db.utxoDao().observeBalance()
     val transactions = db.walletTransactionDao().observeRecent()
     val syncState = db.syncStateDao().observe()
+    val sendAddresses = db.savedAddressDao().observeByType("send")
+    val receiveAddresses = db.savedAddressDao().observeByType("receive")
 
     fun hasWallet(): Boolean = prefs.contains(KEY_PRIVATE)
 
@@ -55,6 +58,75 @@ class WalletManager private constructor(context: Context) {
     fun getReceiveScriptPubKey(): ByteArray {
         val wallet = loadWallet() ?: error("Carteira não inicializada")
         return AddressEncoder.addressToScriptPubKey(wallet.address)
+    }
+
+    suspend fun getAllReceiveScriptPubKeys(): List<String> {
+        val addresses = db.savedAddressDao().getByType("receive")
+        if (addresses.isEmpty()) {
+            val wallet = loadWallet() ?: return emptyList()
+            return listOf(AddressEncoder.addressToScriptPubKey(wallet.address).toHex())
+        }
+        return addresses.map { AddressEncoder.addressToScriptPubKey(it.address).toHex() }
+    }
+
+    suspend fun ensurePrimaryReceiveAddress(info: WalletInfo) {
+        val existing = db.savedAddressDao().getByType("receive")
+        if (existing.isEmpty()) {
+            db.savedAddressDao().insert(
+                SavedAddressEntity(
+                    name = "Principal",
+                    address = info.address,
+                    cashAddress = info.cashAddress,
+                    type = "receive",
+                    isDefault = true,
+                    privateKeyHex = info.privateKey.toHex(),
+                    publicKeyHex = info.publicKey.toHex()
+                )
+            )
+        }
+    }
+
+    suspend fun createReceiveAddress(name: String): SavedAddressEntity {
+        val (privateKey, publicKey) = Secp256k1.generateKeyPair()
+        val address = AddressEncoder.publicKeyToAddress(publicKey)
+        val cashAddress = AddressEncoder.publicKeyToCashAddress(publicKey)
+        val entity = SavedAddressEntity(
+            name = name.trim(),
+            address = address,
+            cashAddress = cashAddress,
+            type = "receive",
+            isDefault = false,
+            privateKeyHex = privateKey.toHex(),
+            publicKeyHex = publicKey.toHex()
+        )
+        val id = db.savedAddressDao().insert(entity)
+        return entity.copy(id = id)
+    }
+
+    suspend fun saveSendAddress(name: String, address: String) {
+        require(AddressEncoder.isValidAddress(address)) { "Endereço inválido" }
+        val cashAddress = if (address.contains(':')) address else address
+        db.savedAddressDao().insert(
+            SavedAddressEntity(
+                name = name.trim(),
+                address = address.trim(),
+                cashAddress = cashAddress,
+                type = "send"
+            )
+        )
+    }
+
+    suspend fun setDefaultReceiveAddress(id: Long) {
+        db.savedAddressDao().clearDefault("receive")
+        db.savedAddressDao().getById(id)?.let { entity ->
+            db.savedAddressDao().update(entity.copy(isDefault = true))
+        }
+    }
+
+    suspend fun deleteSavedAddress(id: Long) {
+        val entity = db.savedAddressDao().getById(id) ?: return
+        require(!entity.isDefault) { "Não é possível remover o endereço principal" }
+        db.savedAddressDao().delete(id)
     }
 
     private fun saveKeys(privateKey: ByteArray, publicKey: ByteArray) {

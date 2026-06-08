@@ -4,15 +4,17 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 object SyncEngine {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var manager: BlockchainSyncManager? = null
+    private val idleProgress = MutableStateFlow(SyncProgress())
 
     val syncProgress: StateFlow<SyncProgress>
-        get() = requireNotNull(manager) { "SyncEngine não inicializado" }.syncProgress
+        get() = manager?.syncProgress ?: idleProgress
 
     fun init(context: Context) {
         if (manager == null) {
@@ -29,5 +31,10 @@ object SyncEngine {
 
     fun stopSync() {
         manager?.stopSync()
+    }
+
+    suspend fun verifySync(context: Context) {
+        init(context)
+        manager?.verifySync()
     }
 }

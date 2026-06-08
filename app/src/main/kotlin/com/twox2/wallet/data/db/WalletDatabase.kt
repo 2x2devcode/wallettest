@@ -10,9 +10,10 @@ import androidx.room.RoomDatabase
         BlockHeaderEntity::class,
         UtxoEntity::class,
         WalletTransactionEntity::class,
-        SyncStateEntity::class
+        SyncStateEntity::class,
+        SavedAddressEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class WalletDatabase : RoomDatabase() {
@@ -20,6 +21,7 @@ abstract class WalletDatabase : RoomDatabase() {
     abstract fun utxoDao(): UtxoDao
     abstract fun walletTransactionDao(): WalletTransactionDao
     abstract fun syncStateDao(): SyncStateDao
+    abstract fun savedAddressDao(): SavedAddressDao
 
     companion object {
         @Volatile

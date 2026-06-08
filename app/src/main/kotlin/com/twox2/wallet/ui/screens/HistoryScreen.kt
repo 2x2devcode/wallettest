@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -47,7 +47,11 @@ fun HistoryScreen(viewModel: WalletViewModel) {
         matchesType && matchesSearch
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+    ) {
         PageHeader("Histórico", "Todas as transações da carteira")
 
         OutlinedTextField(
@@ -80,11 +84,11 @@ fun HistoryScreen(viewModel: WalletViewModel) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else {
-            LazyColumn(
+            Column(
                 modifier = Modifier.padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(filtered) { tx ->
+                filtered.forEach { tx ->
                     TransactionListItem(
                         tx = tx,
                         formattedAmount = viewModel.formatBalance(kotlin.math.abs(tx.amount)),
