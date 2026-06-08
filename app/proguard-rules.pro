@@ -1,0 +1,1 @@
+-keep class com.twox2.wallet.data.db.** { *; }

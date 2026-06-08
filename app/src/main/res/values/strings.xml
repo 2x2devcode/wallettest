@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">2x2 Wallet</string>
+    <string name="sync_channel_name">Sincronização Blockchain</string>
+    <string name="sync_channel_description">Baixa e valida a blockchain 2x2Coin</string>
+    <string name="sync_notification_title">Sincronizando 2x2Coin</string>
+    <string name="sync_notification_text">Bloco %1$d de %2$d (%3$d%%)</string>
+</resources>
