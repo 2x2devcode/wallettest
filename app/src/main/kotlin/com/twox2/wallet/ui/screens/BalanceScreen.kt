@@ -53,6 +53,11 @@ fun BalanceScreen(viewModel: WalletViewModel) {
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold
                 )
+                Text(
+                    "v${com.twox2.wallet.BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
 
