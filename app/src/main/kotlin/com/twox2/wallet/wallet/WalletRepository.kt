@@ -5,28 +5,42 @@ import com.twox2.wallet.data.db.WalletTransactionEntity
 import com.twox2.wallet.network.P2PClient
 import com.twox2.wallet.network.PeerDiscovery
 import com.twox2.wallet.sync.BlockchainSyncService
+import com.twox2.wallet.ui.FeeTier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 
 class WalletRepository(context: Context) {
     private val walletManager = WalletManager.get(context)
+    private val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
 
     val balance: Flow<Long> = walletManager.balance
     val transactions: Flow<List<WalletTransactionEntity>> = walletManager.transactions
+    val allTransactions: Flow<List<WalletTransactionEntity>> =
+        walletManager.getDatabase().walletTransactionDao().observeAll()
     val syncState = walletManager.syncState
 
-    fun ensureWallet(): WalletInfo {
-        return walletManager.loadWallet() ?: walletManager.createWallet()
-    }
+    fun hasWallet(): Boolean = walletManager.hasWallet()
 
     fun getWallet(): WalletInfo? = walletManager.loadWallet()
 
-    fun startBlockchainSync() {
+    fun createWallet(): WalletInfo = walletManager.createWallet()
+
+    fun restoreWallet(wif: String): WalletInfo = walletManager.restoreFromWif(wif)
+
+    fun startAutoSync() {
         BlockchainSyncService.start(context)
     }
 
-    suspend fun sendCoins(toAddress: String, amountCoins: Double, type: String = "transfer"): Result<String> = withContext(Dispatchers.IO) {
+    var isDarkTheme: Boolean
+        get() = prefs.getBoolean("dark_theme", false)
+        set(value) = prefs.edit().putBoolean("dark_theme", value).apply()
+
+    suspend fun sendCoins(
+        toAddress: String,
+        amountCoins: Double,
+        feeTier: FeeTier = FeeTier.MEDIUM
+    ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val wallet = walletManager.loadWallet() ?: error("Carteira não encontrada")
             val amount = (amountCoins * com.twox2.wallet.chain.ChainParams.COIN).toLong()
@@ -37,7 +51,8 @@ class WalletRepository(context: Context) {
                 amount = amount,
                 changeAddress = wallet.address,
                 privateKey = wallet.privateKey,
-                publicKey = wallet.publicKey
+                publicKey = wallet.publicKey,
+                feePerByte = feeTier.feePerByte
             )
 
             val peers = PeerDiscovery.discoverPeers(3)
@@ -61,7 +76,7 @@ class WalletRepository(context: Context) {
                     timestamp = System.currentTimeMillis() / 1000,
                     amount = -amount,
                     fee = 0,
-                    type = type,
+                    type = "sent",
                     address = toAddress,
                     confirmations = 0
                 )

@@ -27,9 +27,9 @@ class P2PClient(
     suspend fun connect(startHeight: Int = 0): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val s = Socket()
-            s.soTimeout = 30_000
+            s.soTimeout = 0
             s.tcpNoDelay = true
-            s.connect(InetSocketAddress(host, port), 15_000)
+            s.connect(InetSocketAddress(host, port))
             socket = s
             input = BufferedInputStream(s.getInputStream())
             output = BufferedOutputStream(s.getOutputStream())
@@ -98,7 +98,7 @@ class P2PClient(
     suspend fun handshake(): Boolean {
         var sentVerack = false
         var gotVerack = false
-        repeat(40) {
+        while (true) {
             val msg = readMessage() ?: return false
             Log.d(TAG, "[$host] recebeu: ${msg.command}")
             when (msg.command) {
@@ -116,8 +116,6 @@ class P2PClient(
                 return true
             }
         }
-        Log.w(TAG, "[$host] handshake falhou (verack=$gotVerack)")
-        return false
     }
 
     companion object {

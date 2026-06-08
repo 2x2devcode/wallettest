@@ -54,6 +54,9 @@ interface WalletTransactionDao {
     @Query("SELECT * FROM wallet_transactions ORDER BY timestamp DESC LIMIT 50")
     fun observeRecent(): Flow<List<WalletTransactionEntity>>
 
+    @Query("SELECT * FROM wallet_transactions ORDER BY timestamp DESC")
+    fun observeAll(): Flow<List<WalletTransactionEntity>>
+
     @Query("SELECT * FROM wallet_transactions WHERE type = :type ORDER BY timestamp DESC")
     fun observeByType(type: String): Flow<List<WalletTransactionEntity>>
 }

@@ -36,20 +36,15 @@ class BlockchainSyncService : Service() {
                 stopSelf()
             }
             else -> {
-                startForeground(NOTIFICATION_ID, buildNotification("Iniciando...", 0))
+                startForeground(NOTIFICATION_ID, buildNotification(0))
                 collectJob?.cancel()
                 collectJob = scope.launch {
                     SyncEngine.syncProgress.collectLatest { progress ->
-                        val text = progress.error ?: progress.status
                         val nm = getSystemService(NotificationManager::class.java)
-                        nm.notify(NOTIFICATION_ID, buildNotification(text, progress.progress))
-                        if (!progress.isSyncing) {
-                            stopForeground(STOP_FOREGROUND_REMOVE)
-                            stopSelf()
-                        }
+                        nm.notify(NOTIFICATION_ID, buildNotification(progress.progress))
                     }
                 }
-                SyncEngine.startSync(this)
+                SyncEngine.startAutoSync(this)
             }
         }
         return START_STICKY
@@ -67,14 +62,14 @@ class BlockchainSyncService : Service() {
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.sync_channel_name),
-            NotificationManager.IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_LOW
         ).apply {
             description = getString(R.string.sync_channel_description)
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    private fun buildNotification(text: String, progress: Int): Notification {
+    private fun buildNotification(progress: Int): Notification {
         val pendingIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java),
@@ -82,12 +77,13 @@ class BlockchainSyncService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.sync_notification_title))
-            .setContentText(text)
+            .setContentText("$progress%")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
             .setProgress(100, progress, progress == 0)
             .setOngoing(progress < 100)
             .setOnlyAlertOnce(true)
+            .setSilent(true)
             .build()
     }
 
