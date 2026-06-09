@@ -6,6 +6,7 @@ import com.twox2.wallet.crypto.AddressEncoder
 import com.twox2.wallet.data.db.SavedAddressEntity
 import com.twox2.wallet.data.db.WalletTransactionEntity
 import com.twox2.wallet.network.ExplorerApi
+import com.twox2.wallet.network.MarketDataApi
 import com.twox2.wallet.network.P2PClient
 import com.twox2.wallet.network.PeerDiscovery
 import com.twox2.wallet.sync.BlockchainSyncService
@@ -61,6 +62,10 @@ class WalletRepository(context: Context) {
     }
 
     suspend fun fetchExplorerBlockCount(): Int? = ExplorerApi.getBlockCount()
+
+    suspend fun fetchUsdPrice(): Double? = withContext(Dispatchers.IO) {
+        MarketDataApi.get2x2UsdtPrice()
+    }
 
     var isDarkTheme: Boolean
         get() = prefs.getBoolean("dark_theme", false)
