@@ -15,8 +15,9 @@ class BitcoinOutput {
     }
 
     fun writeUInt16(value: Int) {
-        writeByte((value shr 8).toByte())
-        writeByte((value and 0xFF).toByte())
+        val bb = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN)
+        bb.putShort(value.toShort())
+        writeBytes(bb.array())
     }
 
     fun writeUInt32(value: Long) {
@@ -42,7 +43,7 @@ class BitcoinOutput {
             value < 0xFD -> writeByte(value.toByte())
             value <= 0xFFFF -> {
                 writeByte(0xFD.toByte())
-                writeUInt32(value)
+                writeUInt16(value.toInt())
             }
             value <= 0xFFFFFFFFL -> {
                 writeByte(0xFE.toByte())

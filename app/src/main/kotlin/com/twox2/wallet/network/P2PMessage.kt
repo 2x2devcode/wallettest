@@ -85,13 +85,31 @@ object P2PMessage {
         return out.toByteArray()
     }
 
+    /**
+     * Formato 2x2Coin: cada entrada é CBlock = header(80) + compactSize(vtx=0) + compactSize(sig=0).
+     */
     fun parseHeadersPayload(payload: ByteArray): List<com.twox2.wallet.chain.BlockHeader> {
         val input = BitcoinInput(payload)
         val count = input.readVarInt().toInt()
         return (0 until count).map {
-            com.twox2.wallet.chain.BlockHeader.deserialize(input)
+            val header = com.twox2.wallet.chain.BlockHeader.deserialize(input)
+            input.readVarInt() // nTx count (sempre 0 em headers)
+            input.readVarInt() // vchBlockSig length (sempre 0 em headers)
+            header
         }
     }
+
+    /** Extrai start_height do payload da mensagem version (best height do peer). */
+    fun parseVersionStartHeight(payload: ByteArray): Int? = runCatching {
+        val input = BitcoinInput(payload)
+        input.readInt32() // protocol
+        input.readInt64() // services
+        input.readInt64() // timestamp
+        input.readBytes(30) // addrMe
+        input.readBytes(30) // addrFrom
+        input.readVarBytes() // user agent
+        input.readInt32() // start_height
+    }.getOrNull()
 
     fun parseInvPayload(payload: ByteArray): List<InventoryItem> {
         val input = BitcoinInput(payload)

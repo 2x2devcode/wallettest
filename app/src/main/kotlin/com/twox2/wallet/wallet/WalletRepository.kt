@@ -25,7 +25,7 @@ class WalletRepository(context: Context) {
     val allTransactions: Flow<List<WalletTransactionEntity>> =
         walletManager.getDatabase().walletTransactionDao().observeAll()
     val syncState = walletManager.syncState
-    val blockCount = walletManager.getDatabase().blockHeaderDao().observeCount()
+    val blockCount = walletManager.getDatabase().blockHeaderDao().observeTipHeight()
     val sendAddresses: Flow<List<SavedAddressEntity>> = walletManager.sendAddresses
     val receiveAddresses: Flow<List<SavedAddressEntity>> = walletManager.receiveAddresses
 
@@ -94,13 +94,20 @@ class WalletRepository(context: Context) {
             val wallet = walletManager.loadWallet() ?: error("Carteira não encontrada")
             val amount = (amountCoins * ChainParams.COIN).toLong()
             val utxos = walletManager.getDatabase().utxoDao().getUnspent()
+            val utxoKeys = mutableMapOf<Long, TransactionBuilder.SigningKey>()
+            for (utxo in utxos) {
+                val key = walletManager.resolveSigningKey(utxo.scriptPubKey)
+                    ?: continue
+                utxoKeys[utxo.id] = TransactionBuilder.SigningKey(key.first, key.second)
+            }
+            require(utxoKeys.isNotEmpty()) { "Nenhuma chave disponível para assinar transação" }
+            val spendableUtxos = utxos.filter { utxoKeys.containsKey(it.id) }
             val tx = TransactionBuilder.buildAndSign(
-                utxos = utxos,
+                utxos = spendableUtxos,
+                utxoKeys = utxoKeys,
                 toAddress = toAddress,
                 amount = amount,
                 changeAddress = wallet.address,
-                privateKey = wallet.privateKey,
-                publicKey = wallet.publicKey,
                 feePerByte = feeTier.feePerByte
             )
 

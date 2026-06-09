@@ -62,7 +62,6 @@ fun OverviewScreen(
     val syncProgress by viewModel.syncProgress.collectAsState()
     val isVerifying by viewModel.isVerifying.collectAsState()
     val blockCount by viewModel.blockCount.collectAsState()
-
     val isConnected = syncProgress.connectedPeers.isNotEmpty() || syncProgress.isSyncing
     val blockHeight = syncProgress.height.takeIf { it > 0 } ?: blockCount
 

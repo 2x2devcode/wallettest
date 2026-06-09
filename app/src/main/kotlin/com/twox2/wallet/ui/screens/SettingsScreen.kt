@@ -48,13 +48,9 @@ fun SettingsScreen(viewModel: WalletViewModel) {
         else -> emptyList()
     }
 
-    val syncedBlocks = blockCount.takeIf { it > 0 }
-        ?: syncProgress.blockCount.takeIf { it > 0 }
-        ?: syncState?.blockCount
-        ?: 0
-
     val lastBlockHeight = syncState?.bestHeight
-        ?: syncProgress.height
+        ?: syncProgress.height.takeIf { it > 0 }
+        ?: blockCount.takeIf { it > 0 }
         ?: 0
 
     Column(
@@ -102,7 +98,6 @@ fun SettingsScreen(viewModel: WalletViewModel) {
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Blocos sincronizados: $syncedBlocks")
                 Text("Altura do último bloco (local): $lastBlockHeight")
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Altura do último bloco (explorer):", style = MaterialTheme.typography.labelMedium)

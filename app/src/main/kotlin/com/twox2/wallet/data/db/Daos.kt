@@ -24,11 +24,20 @@ interface BlockHeaderDao {
     @Query("SELECT COUNT(*) FROM block_headers")
     fun observeCount(): Flow<Int>
 
+    @Query("SELECT COALESCE(MAX(height), 0) FROM block_headers")
+    fun observeTipHeight(): Flow<Int>
+
     @Query("SELECT * FROM block_headers WHERE height = :height")
     suspend fun getByHeight(height: Int): BlockHeaderEntity?
 
     @Query("SELECT * FROM block_headers ORDER BY height ASC")
     fun observeAll(): Flow<List<BlockHeaderEntity>>
+
+    @Query("DELETE FROM block_headers")
+    suspend fun deleteAll()
+
+    @Query("DELETE FROM block_headers WHERE height > :height")
+    suspend fun deleteAbove(height: Int)
 }
 
 @Dao

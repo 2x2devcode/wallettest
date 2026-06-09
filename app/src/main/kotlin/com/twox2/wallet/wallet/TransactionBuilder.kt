@@ -1,6 +1,5 @@
 package com.twox2.wallet.wallet
 
-import com.twox2.wallet.chain.ChainParams
 import com.twox2.wallet.chain.Transaction
 import com.twox2.wallet.chain.TxIn
 import com.twox2.wallet.chain.TxOut
@@ -11,19 +10,19 @@ import com.twox2.wallet.crypto.Secp256k1
 import com.twox2.wallet.crypto.Sha256
 import com.twox2.wallet.data.db.UtxoEntity
 import com.twox2.wallet.serialization.BitcoinOutput
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import java.math.BigInteger
 
 object TransactionBuilder {
     private const val DUST = 546L
 
+    data class SigningKey(val privateKey: ByteArray, val publicKey: ByteArray)
+
     fun buildAndSign(
         utxos: List<UtxoEntity>,
+        utxoKeys: Map<Long, SigningKey>,
         toAddress: String,
         amount: Long,
         changeAddress: String,
-        privateKey: ByteArray,
-        publicKey: ByteArray,
         feePerByte: Long = 10L
     ): Transaction {
         require(AddressEncoder.isValidAddress(toAddress)) { "Endereço de destino inválido" }
@@ -41,9 +40,6 @@ object TransactionBuilder {
             outputs.add(TxOut(change, AddressEncoder.addressToScriptPubKey(changeAddress)))
         }
 
-        val pubKeyHash = Hash160.hash(publicKey)
-        val scriptCode = byteArrayOf(0x76, 0xA9.toByte(), 0x14) + pubKeyHash + byteArrayOf(0x88.toByte(), 0xAC.toByte())
-
         val inputs = selected.map { utxo ->
             TxIn(
                 prevTxHash = UInt256.fromHex(utxo.txHash),
@@ -60,9 +56,14 @@ object TransactionBuilder {
         )
 
         val signedInputs = inputs.mapIndexed { index, input ->
+            val utxo = selected[index]
+            val signingKey = utxoKeys[utxo.id]
+                ?: error("Chave de assinatura não encontrada para UTXO ${utxo.txHash}:${utxo.outputIndex}")
+            val pubKeyHash = Hash160.hash(signingKey.publicKey)
+            val scriptCode = byteArrayOf(0x76, 0xA9.toByte(), 0x14) + pubKeyHash + byteArrayOf(0x88.toByte(), 0xAC.toByte())
             val sighash = buildSignatureHash(tx, index, scriptCode)
-            val signature = Secp256k1.sign(privateKey, sighash)
-            val scriptSig = encodeScriptSig(signature, publicKey)
+            val signature = Secp256k1.sign(signingKey.privateKey, sighash)
+            val scriptSig = encodeScriptSig(signature, signingKey.publicKey)
             input.copy(scriptSig = scriptSig)
         }
 
@@ -97,8 +98,8 @@ object TransactionBuilder {
     }
 
     private fun encodeDerSignature(compact: ByteArray): ByteArray {
-        val r = java.math.BigInteger(1, compact.copyOfRange(0, 32))
-        val s = java.math.BigInteger(1, compact.copyOfRange(32, 64))
+        val r = BigInteger(1, compact.copyOfRange(0, 32))
+        val s = BigInteger(1, compact.copyOfRange(32, 64))
         val rBytes = stripLeadingZeros(r.toByteArray())
         val sBytes = stripLeadingZeros(s.toByteArray())
         val totalLen = 4 + rBytes.size + sBytes.size
