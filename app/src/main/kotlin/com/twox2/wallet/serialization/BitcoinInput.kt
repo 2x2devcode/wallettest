@@ -19,6 +19,11 @@ class BitcoinInput(private val data: ByteArray) {
         return result
     }
 
+    fun readUInt16(): Int {
+        val bytes = readBytes(2)
+        return ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xFFFF
+    }
+
     fun readUInt32(): Long {
         val bytes = readBytes(4)
         return ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).int.toLong() and 0xFFFFFFFFL
@@ -38,8 +43,8 @@ class BitcoinInput(private val data: ByteArray) {
         val first = readByte().toInt() and 0xFF
         return when {
             first < 0xFD -> first.toLong()
-            first == 0xFD -> readUInt32()
-            first == 0xFE -> readInt64() and 0xFFFFFFFFL
+            first == 0xFD -> readUInt16().toLong()
+            first == 0xFE -> readUInt32()
             else -> readInt64()
         }
     }
