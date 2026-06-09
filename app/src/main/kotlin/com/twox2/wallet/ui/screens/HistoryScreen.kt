@@ -92,6 +92,7 @@ fun HistoryScreen(viewModel: WalletViewModel) {
                     TransactionListItem(
                         tx = tx,
                         formattedAmount = viewModel.formatBalance(kotlin.math.abs(tx.amount)),
+                        formattedFee = if (tx.fee > 0) viewModel.formatFee(tx.fee) else null,
                         onClick = { selectedTx = tx }
                     )
                 }
@@ -108,6 +109,9 @@ fun HistoryScreen(viewModel: WalletViewModel) {
                     Text("TXID: ${tx.txHash}")
                     Text("Tipo: ${tx.type}")
                     Text("Valor: ${viewModel.formatBalance(kotlin.math.abs(tx.amount))}")
+                    if (tx.fee > 0) {
+                        Text("Taxa: ${viewModel.formatFee(tx.fee)}")
+                    }
                     Text("Bloco: ${if (tx.blockHeight >= 0) tx.blockHeight else "Pendente"}")
                     Text("Confirmações: ${tx.confirmations}")
                     if (tx.address.isNotBlank()) Text("Endereço: ${tx.address}")

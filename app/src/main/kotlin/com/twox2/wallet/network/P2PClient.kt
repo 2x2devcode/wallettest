@@ -67,12 +67,19 @@ class P2PClient(
         sendMessage("getdata", P2PMessage.buildGetDataPayload(items))
     }
 
-    fun sendTransaction(tx: Transaction): Boolean {
+    sealed class SendResult {
+        data object Relayed : SendResult()
+        data class Rejected(val reason: String) : SendResult()
+        data object Failed : SendResult()
+    }
+
+    fun sendTransaction(tx: Transaction): SendResult {
         val txHash = tx.getHash()
         val txBytes = tx.serialize()
         sendMessage("inv", P2PMessage.buildInvPayload(listOf(InventoryItem(InventoryItem.MSG_TX, txHash))))
 
-        val deadline = System.currentTimeMillis() + 8_000
+        var relayedViaGetData = false
+        val deadline = System.currentTimeMillis() + 10_000
         while (System.currentTimeMillis() < deadline) {
             val msg = readMessageBlocking() ?: break
             when (msg.command) {
@@ -80,18 +87,65 @@ class P2PClient(
                     val items = P2PMessage.parseInvPayload(msg.payload)
                     if (items.any { it.type == InventoryItem.MSG_TX && it.hash == txHash }) {
                         sendMessage("tx", txBytes)
+                        relayedViaGetData = true
                         Log.d(TAG, "[$host] tx enviada após getdata")
-                        return true
                     }
+                }
+                "reject" -> {
+                    val reason = parseRejectReason(msg.payload)
+                    Log.w(TAG, "[$host] tx rejeitada: $reason")
+                    return SendResult.Rejected(reason)
                 }
                 "ping" -> sendMessage("pong", msg.payload)
                 "inv", "headers", "addr" -> Unit
             }
+            if (relayedViaGetData) {
+                val ackDeadline = System.currentTimeMillis() + 3_000
+                while (System.currentTimeMillis() < ackDeadline) {
+                    val ack = readMessageBlocking() ?: break
+                    when (ack.command) {
+                        "reject" -> {
+                            val reason = parseRejectReason(ack.payload)
+                            Log.w(TAG, "[$host] tx rejeitada após relay: $reason")
+                            return SendResult.Rejected(reason)
+                        }
+                        "ping" -> sendMessage("pong", ack.payload)
+                        else -> Unit
+                    }
+                }
+                return SendResult.Relayed
+            }
         }
 
-        sendMessage("tx", txBytes)
-        Log.d(TAG, "[$host] tx enviada (unsolicited)")
-        return true
+        if (!relayedViaGetData) {
+            sendMessage("tx", txBytes)
+            Log.d(TAG, "[$host] tx enviada (unsolicited)")
+            val rejectDeadline = System.currentTimeMillis() + 3_000
+            while (System.currentTimeMillis() < rejectDeadline) {
+                val msg = readMessageBlocking() ?: break
+                when (msg.command) {
+                    "reject" -> {
+                        val reason = parseRejectReason(msg.payload)
+                        Log.w(TAG, "[$host] tx rejeitada (unsolicited): $reason")
+                        return SendResult.Rejected(reason)
+                    }
+                    "ping" -> sendMessage("pong", msg.payload)
+                    else -> Unit
+                }
+            }
+        }
+
+        return if (relayedViaGetData) SendResult.Relayed else SendResult.Failed
+    }
+
+    private fun parseRejectReason(payload: ByteArray): String {
+        return runCatching {
+            val input = com.twox2.wallet.serialization.BitcoinInput(payload)
+            val message = input.readVarString()
+            val code = input.readByte().toInt() and 0xFF
+            val reason = input.readVarString()
+            "$message (code=$code): $reason"
+        }.getOrElse { "rejeitada pelo peer" }
     }
 
     private fun readMessageBlocking(): P2PMessageData? {
@@ -171,7 +225,7 @@ class P2PClient(
     }
 
     private fun buildEmptyHeadersPayload(): ByteArray {
-        return byteArrayOf(0x00) // varint 0 headers
+        return byteArrayOf(0x00)
     }
 
     companion object {

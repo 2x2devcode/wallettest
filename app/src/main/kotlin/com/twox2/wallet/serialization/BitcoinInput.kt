@@ -54,6 +54,10 @@ class BitcoinInput(private val data: ByteArray) {
         return readBytes(len)
     }
 
+    fun readVarString(): String {
+        return String(readVarBytes(), Charsets.US_ASCII)
+    }
+
     fun readUInt256(): ByteArray = readBytes(32)
 
     fun remaining(): Int = data.size - offset

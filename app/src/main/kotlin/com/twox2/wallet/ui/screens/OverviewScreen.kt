@@ -156,7 +156,8 @@ fun OverviewScreen(
                 transactions.take(3).forEach { tx ->
                     DashboardTransactionItem(
                         tx = tx,
-                        formattedAmount = viewModel.formatBalanceShort(kotlin.math.abs(tx.amount))
+                        formattedAmount = viewModel.formatBalanceShort(kotlin.math.abs(tx.amount)),
+                        formattedFee = if (tx.fee > 0) viewModel.formatFee(tx.fee) else null
                     )
                 }
             }

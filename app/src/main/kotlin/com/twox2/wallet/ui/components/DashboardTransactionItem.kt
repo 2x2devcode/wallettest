@@ -35,7 +35,11 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun DashboardTransactionItem(tx: WalletTransactionEntity, formattedAmount: String) {
+fun DashboardTransactionItem(
+    tx: WalletTransactionEntity,
+    formattedAmount: String,
+    formattedFee: String? = null
+) {
     val isReceived = tx.amount >= 0
     val accentColor = if (isReceived) GreenReceived else RedSent
     val label = if (isReceived) "Received" else "Sent"
@@ -75,6 +79,13 @@ fun DashboardTransactionItem(tx: WalletTransactionEntity, formattedAmount: Strin
                         style = MaterialTheme.typography.bodySmall,
                         color = TextMuted
                     )
+                    if (formattedFee != null) {
+                        Text(
+                            "Fee: $formattedFee",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMuted
+                        )
+                    }
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(amountText, color = accentColor, fontWeight = FontWeight.Bold)

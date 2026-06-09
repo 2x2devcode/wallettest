@@ -99,11 +99,19 @@ object ExplorerApi {
                 txid = tx.optString("txid", txid),
                 blockHeight = tx.optInt("blockindex", -1),
                 timestamp = tx.optLong("timestamp"),
+                fee = tx.optLong("fee"),
                 outputs = outputs
             )
         }.onFailure {
             Log.w(TAG, "Falha ao obter tx $txid", it)
         }.getOrNull()
+    }
+
+    suspend fun txExists(txid: String): Boolean = getTx(txid) != null
+
+    suspend fun getLatestBlockTime(): Long? = withContext(Dispatchers.IO) {
+        val height = getBlockCount() ?: return@withContext null
+        getBlockAtHeight(height)?.time
     }
 
     suspend fun getBlockHash(height: Int): String? = withContext(Dispatchers.IO) {
@@ -168,6 +176,7 @@ data class ExplorerTxDetail(
     val txid: String,
     val blockHeight: Int,
     val timestamp: Long,
+    val fee: Long = 0,
     val outputs: List<ExplorerTxOutput>
 )
 

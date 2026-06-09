@@ -95,6 +95,29 @@ class WalletRepository(context: Context) {
         walletManager.deleteSavedAddress(id)
     }
 
+    suspend fun estimateSendFee(amountCoins: Double, feeTier: FeeTier): Long = withContext(Dispatchers.IO) {
+        val amount = (amountCoins * ChainParams.COIN).toLong()
+        val utxos = walletManager.getDatabase().utxoDao().getUnspent()
+        val spendable = utxos.filter { walletManager.resolveSigningKey(it.scriptPubKey) != null }
+        if (spendable.isEmpty()) return@withContext feeTier.estimateDefaultFee()
+
+        val sorted = spendable.sortedByDescending { it.value }
+        var total = 0L
+        var inputCount = 0
+        for (utxo in sorted) {
+            inputCount++
+            total += utxo.value
+            var outputCount = 2
+            var fee = TransactionBuilder.estimateFee(inputCount, outputCount, feeTier.feePerByte)
+            if (total - amount - fee <= TransactionBuilder.DUST_THRESHOLD) {
+                outputCount = 1
+                fee = TransactionBuilder.estimateFee(inputCount, outputCount, feeTier.feePerByte)
+            }
+            if (total >= amount + fee) return@withContext fee
+        }
+        feeTier.estimateDefaultFee()
+    }
+
     suspend fun sendCoins(
         toAddress: String,
         amountCoins: Double,
@@ -105,9 +128,12 @@ class WalletRepository(context: Context) {
             require(amountCoins <= MAX_SEND_COINS) { "Envio máximo: $MAX_SEND_COINS ${ChainParams.CURRENCY}" }
             require(AddressEncoder.isValidAddress(toAddress)) { "Endereço inválido" }
 
+            ExplorerWalletSync.sync(context)
+
             val wallet = walletManager.loadWallet() ?: error("Carteira não encontrada")
             val amount = (amountCoins * ChainParams.COIN).toLong()
-            val utxos = walletManager.getDatabase().utxoDao().getUnspent()
+            val db = walletManager.getDatabase()
+            val utxos = db.utxoDao().getUnspent()
             val utxoKeys = mutableMapOf<Long, TransactionBuilder.SigningKey>()
             for (utxo in utxos) {
                 val key = walletManager.resolveSigningKey(utxo.scriptPubKey)
@@ -116,35 +142,46 @@ class WalletRepository(context: Context) {
             }
             require(utxoKeys.isNotEmpty()) { "Nenhuma chave disponível para assinar transação" }
             val spendableUtxos = utxos.filter { utxoKeys.containsKey(it.id) }
-            val tx = TransactionBuilder.buildAndSign(
+            require(spendableUtxos.isNotEmpty()) { "Nenhum UTXO disponível para gastar" }
+
+            val networkTime = ExplorerApi.getLatestBlockTime() ?: (System.currentTimeMillis() / 1000)
+            val buildResult = TransactionBuilder.buildAndSign(
                 utxos = spendableUtxos,
                 utxoKeys = utxoKeys,
                 toAddress = toAddress.trim(),
                 amount = amount,
                 changeAddress = wallet.address,
-                feePerByte = feeTier.feePerByte
+                feePerByte = feeTier.feePerByte,
+                networkTime = networkTime
             )
+            val tx = buildResult.transaction
 
-            val broadcast = withTimeout(60_000) {
+            val broadcast = withTimeout(90_000) {
                 TransactionBroadcaster.broadcast(tx)
             }
-            require(broadcast) { "Falha ao transmitir transação. Verifique sua conexão." }
+            when (broadcast) {
+                is TransactionBroadcaster.BroadcastResult.Rejected ->
+                    error("Transação rejeitada pela rede: ${broadcast.reason}")
+                is TransactionBroadcaster.BroadcastResult.Failed ->
+                    error("Falha ao transmitir transação. Verifique sua conexão.")
+                is TransactionBroadcaster.BroadcastResult.Success -> Unit
+            }
 
             val txHash = tx.getHash().toHex()
-            walletManager.getDatabase().walletTransactionDao().insert(
+            db.walletTransactionDao().insert(
                 WalletTransactionEntity(
                     txHash = txHash,
                     blockHeight = -1,
                     timestamp = System.currentTimeMillis() / 1000,
                     amount = -amount,
-                    fee = 0,
+                    fee = buildResult.fee,
                     type = "sent",
                     address = toAddress,
                     confirmations = 0
                 )
             )
             tx.inputs.forEach { input ->
-                walletManager.getDatabase().utxoDao().markSpent(
+                db.utxoDao().markSpent(
                     input.prevTxHash.toHex(),
                     input.prevIndex.toInt()
                 )
