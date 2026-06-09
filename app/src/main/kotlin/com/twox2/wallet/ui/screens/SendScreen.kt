@@ -33,6 +33,7 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,10 +72,15 @@ fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
     val sendState by viewModel.sendState.collectAsState()
     val balance by viewModel.balance.collectAsState()
     val sendAddresses by viewModel.sendAddresses.collectAsState()
+    val estimatedFeeSat by viewModel.estimatedFee.collectAsState()
+
+    LaunchedEffect(amount, selectedFee) {
+        viewModel.updateEstimatedFee(amount, selectedFee)
+    }
 
     val addressValidation = viewModel.validateAddress(address)
     val amountValue = amount.replace(",", ".").toDoubleOrNull() ?: 0.0
-    val feeCoins = selectedFee.displayFeeCoins
+    val feeCoins = estimatedFeeSat.toDouble() / com.twox2.wallet.chain.ChainParams.COIN
     val total = amountValue + feeCoins
 
     Column(
@@ -167,8 +173,9 @@ fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
                             .border(1.dp, TealPrimary, RoundedCornerShape(8.dp))
                             .clickable {
                                 val maxCoins = balance.toDouble() / com.twox2.wallet.chain.ChainParams.COIN
-                                val capped = minOf(maxCoins, WalletRepository.MAX_SEND_COINS)
-                                amount = "%.2f".format(capped)
+                                val feeReserve = estimatedFeeSat.toDouble() / com.twox2.wallet.chain.ChainParams.COIN
+                                val capped = minOf(maxCoins - feeReserve, WalletRepository.MAX_SEND_COINS)
+                                amount = "%.2f".format(maxOf(capped, 0.0))
                             }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
@@ -214,8 +221,8 @@ fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
 
         TransactionSummaryCard(
             amount = if (amount.isBlank()) "—" else "${amountValue} 2X2",
-            fee = "${feeCoins} 2X2",
-            total = if (amount.isBlank()) "—" else "${"%.3f".format(total)} 2X2"
+            fee = viewModel.formatFee(estimatedFeeSat),
+            total = if (amount.isBlank()) "—" else "${"%.6f".format(total)} 2X2"
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -334,7 +341,7 @@ private fun FeeOptionRow(tier: FeeTier, selected: Boolean, onSelect: () -> Unit)
             colors = RadioButtonDefaults.colors(selectedColor = TealPrimary, unselectedColor = TextMuted)
         )
         Text(
-            "${tier.label}: ${tier.displayFeeCoins} 2X2",
+            "${tier.label}: ~${tier.formatFeeCoins()} 2X2",
             color = Color.White,
             modifier = Modifier.padding(start = 8.dp)
         )

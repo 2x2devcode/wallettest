@@ -27,6 +27,7 @@ import java.util.Locale
 fun TransactionListItem(
     tx: WalletTransactionEntity,
     formattedAmount: String,
+    formattedFee: String? = null,
     onClick: (() -> Unit)? = null
 ) {
     val icon = when (tx.type) {
@@ -62,6 +63,13 @@ fun TransactionListItem(
                     Text(
                         "Bloco ${tx.blockHeight} · ${tx.confirmations} conf.",
                         style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (formattedFee != null) {
+                    Text(
+                        "Taxa: $formattedFee",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

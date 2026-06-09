@@ -13,6 +13,7 @@ import com.twox2.wallet.sync.SyncEngine
 import com.twox2.wallet.sync.SyncProgress
 import com.twox2.wallet.wallet.WalletInfo
 import com.twox2.wallet.wallet.WalletRepository
+import com.twox2.wallet.wallet.TransactionBuilder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,10 +24,17 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-enum class FeeTier(val label: String, val feePerByte: Long, val displayFeeCoins: Double) {
-    STANDARD("Standard", 5L, 0.001),
-    FAST("Fast", 10L, 0.002),
-    PRIORITY("Priority", 20L, 0.005)
+enum class FeeTier(val label: String, val feePerByte: Long) {
+    STANDARD("Standard", 10L),
+    FAST("Fast", 20L),
+    PRIORITY("Priority", 40L);
+
+    fun estimateDefaultFee(): Long = TransactionBuilder.estimateFee(1, 2, feePerByte)
+
+    fun formatFeeCoins(): String {
+        val coins = estimateDefaultFee().toDouble() / ChainParams.COIN
+        return "%.6f".format(coins)
+    }
 }
 
 enum class AddressValidation {
@@ -271,6 +279,25 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     fun setDarkTheme(enabled: Boolean) {
         repository.isDarkTheme = enabled
         _darkTheme.value = enabled
+    }
+
+    private val _estimatedFee = MutableStateFlow(0L)
+    val estimatedFee: StateFlow<Long> = _estimatedFee.asStateFlow()
+
+    fun updateEstimatedFee(amount: String, feeTier: FeeTier) {
+        viewModelScope.launch {
+            val amountValue = amount.replace(",", ".").toDoubleOrNull() ?: 0.0
+            _estimatedFee.value = if (amountValue > 0) {
+                runCatching { repository.estimateSendFee(amountValue, feeTier) }.getOrDefault(feeTier.estimateDefaultFee())
+            } else {
+                feeTier.estimateDefaultFee()
+            }
+        }
+    }
+
+    fun formatFee(feeSatoshis: Long): String {
+        val coins = feeSatoshis.toDouble() / ChainParams.COIN
+        return "%.6f %s".format(coins, ChainParams.CURRENCY)
     }
 
     fun formatBalance(satoshis: Long): String {
