@@ -33,6 +33,7 @@ fun WalletHeader(
     showBack: Boolean = false,
     onBack: (() -> Unit)? = null,
     isConnected: Boolean = false,
+    showConnectionStatus: Boolean = true,
     showMenu: Boolean = true
 ) {
     Row(
@@ -67,25 +68,29 @@ fun WalletHeader(
                 modifier = Modifier.padding(start = if (showBack) 0.dp else 12.dp)
             )
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (isConnected) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(GreenAccent)
-                )
-                Text(
-                    "Connected",
-                    color = GreenAccent,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(start = 6.dp, end = 8.dp)
-                )
-            } else {
-                Text("Offline", color = TextMuted, style = MaterialTheme.typography.labelMedium)
-            }
-            if (showMenu) {
-                Icon(Icons.Default.MoreVert, contentDescription = null, tint = TextMuted)
+        if (showConnectionStatus || showMenu) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (showConnectionStatus) {
+                    if (isConnected) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(GreenAccent)
+                        )
+                        Text(
+                            "Connected",
+                            color = GreenAccent,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(start = 6.dp, end = 8.dp)
+                        )
+                    } else {
+                        Text("Offline", color = TextMuted, style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+                if (showMenu) {
+                    Icon(Icons.Default.MoreVert, contentDescription = null, tint = TextMuted)
+                }
             }
         }
     }
