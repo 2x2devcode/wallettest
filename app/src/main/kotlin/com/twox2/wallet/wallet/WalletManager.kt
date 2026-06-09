@@ -76,6 +76,18 @@ class WalletManager private constructor(context: Context) {
         return AddressEncoder.addressToScriptPubKey(wallet.address)
     }
 
+    suspend fun getAllReceiveLegacyAddresses(): List<String> {
+        val wallet = loadWallet()
+        val addresses = db.savedAddressDao().getByType("receive")
+        if (addresses.isEmpty()) {
+            return listOfNotNull(wallet?.address?.takeIf { it.isNotBlank() })
+        }
+        return addresses.mapNotNull { entity ->
+            resolveLegacyAddress(entity.address, entity.cashAddress, entity.publicKeyHex)
+                .takeIf { it.isNotBlank() }
+        }.distinct()
+    }
+
     suspend fun getAllReceiveScriptPubKeys(): List<String> {
         val addresses = db.savedAddressDao().getByType("receive")
         if (addresses.isEmpty()) {

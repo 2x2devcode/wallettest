@@ -4,23 +4,106 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
 object ExplorerApi {
     private const val TAG = "TwoX2Explorer"
     private const val BASE_URL = "https://newexplorer.2x2coin.com/api"
+    private const val EXT_URL = "https://newexplorer.2x2coin.com/ext"
 
     suspend fun getBlockCount(): Int? = getBlockCountWithRetry(3)
 
     suspend fun getBlockCountWithRetry(attempts: Int = 3): Int? = withContext(Dispatchers.IO) {
-        repeat(attempts) { attempt ->
-            val value = fetchText("$BASE_URL/getblockcount")?.trim()?.toIntOrNull()
-            if (value != null && value >= 0) return@withContext value
-            if (attempt < attempts - 1) delay(2_000L * (attempt + 1))
+        getSummary()?.blockCount ?: run {
+            repeat(attempts) { attempt ->
+                val value = fetchText("$BASE_URL/getblockcount")?.trim()?.toIntOrNull()
+                if (value != null && value >= 0) return@withContext value
+                if (attempt < attempts - 1) delay(2_000L * (attempt + 1))
+            }
+            Log.w(TAG, "Falha ao obter altura da rede via explorer")
+            null
         }
-        Log.w(TAG, "Falha ao obter altura da rede via explorer")
-        null
+    }
+
+    suspend fun getSummary(): ExplorerSummary? = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = fetchText("$EXT_URL/getsummary") ?: return@withContext null
+            val json = JSONObject(body)
+            ExplorerSummary(
+                blockCount = json.optInt("blockcount", -1).takeIf { it >= 0 }
+                    ?: return@withContext null
+            )
+        }.onFailure {
+            Log.w(TAG, "Falha ao obter summary do explorer", it)
+        }.getOrNull()
+    }
+
+    suspend fun getAddressBalance(address: String): Long? = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = fetchText("$EXT_URL/getbalance/$address")?.trim() ?: return@withContext null
+            val coins = body.toDoubleOrNull() ?: return@withContext null
+            (coins * com.twox2.wallet.chain.ChainParams.COIN).toLong()
+        }.onFailure {
+            Log.w(TAG, "Falha ao obter saldo de $address", it)
+        }.getOrNull()
+    }
+
+    suspend fun getAddressTxs(
+        address: String,
+        start: Int = 0,
+        length: Int = 50
+    ): List<ExplorerAddressTx> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = fetchText("$EXT_URL/getaddresstxs/$address/$start/$length") ?: return@withContext emptyList()
+            val array = JSONArray(body)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.getJSONObject(i)
+                    add(
+                        ExplorerAddressTx(
+                            txid = item.optString("txid"),
+                            timestamp = item.optLong("timestamp"),
+                            sent = item.optDouble("sent"),
+                            received = item.optDouble("received"),
+                            balance = item.optDouble("balance")
+                        )
+                    )
+                }
+            }
+        }.onFailure {
+            Log.w(TAG, "Falha ao obter transações de $address", it)
+        }.getOrDefault(emptyList())
+    }
+
+    suspend fun getTx(txid: String): ExplorerTxDetail? = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = fetchText("$EXT_URL/gettx/$txid") ?: return@withContext null
+            val root = JSONObject(body)
+            val tx = root.optJSONObject("tx") ?: return@withContext null
+            val vouts = tx.optJSONArray("vout") ?: JSONArray()
+            val outputs = buildList {
+                for (i in 0 until vouts.length()) {
+                    val vout = vouts.getJSONObject(i)
+                    add(
+                        ExplorerTxOutput(
+                            address = vout.optString("addresses"),
+                            amount = vout.optLong("amount")
+                        )
+                    )
+                }
+            }
+            ExplorerTxDetail(
+                txid = tx.optString("txid", txid),
+                blockHeight = tx.optInt("blockindex", -1),
+                timestamp = tx.optLong("timestamp"),
+                outputs = outputs
+            )
+        }.onFailure {
+            Log.w(TAG, "Falha ao obter tx $txid", it)
+        }.getOrNull()
     }
 
     suspend fun getBlockHash(height: Int): String? = withContext(Dispatchers.IO) {
@@ -46,3 +129,25 @@ object ExplorerApi {
         connection.inputStream.bufferedReader().use { it.readText() }
     }.getOrNull()
 }
+
+data class ExplorerSummary(val blockCount: Int)
+
+data class ExplorerAddressTx(
+    val txid: String,
+    val timestamp: Long,
+    val sent: Double,
+    val received: Double,
+    val balance: Double
+)
+
+data class ExplorerTxDetail(
+    val txid: String,
+    val blockHeight: Int,
+    val timestamp: Long,
+    val outputs: List<ExplorerTxOutput>
+)
+
+data class ExplorerTxOutput(
+    val address: String,
+    val amount: Long
+)

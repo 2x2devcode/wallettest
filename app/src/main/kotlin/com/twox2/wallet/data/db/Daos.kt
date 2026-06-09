@@ -56,6 +56,9 @@ interface UtxoDao {
 
     @Query("SELECT * FROM utxos WHERE scriptPubKey = :scriptHex AND spent = 0")
     suspend fun getByScript(scriptHex: String): List<UtxoEntity>
+
+    @Query("SELECT * FROM utxos WHERE txHash = :txHash AND outputIndex = :outputIndex LIMIT 1")
+    suspend fun findByOutpoint(txHash: String, outputIndex: Int): UtxoEntity?
 }
 
 @Dao
@@ -71,6 +74,9 @@ interface WalletTransactionDao {
 
     @Query("SELECT * FROM wallet_transactions WHERE type = :type ORDER BY timestamp DESC")
     fun observeByType(type: String): Flow<List<WalletTransactionEntity>>
+
+    @Query("SELECT COUNT(*) > 0 FROM wallet_transactions WHERE txHash = :txHash")
+    suspend fun exists(txHash: String): Boolean
 }
 
 @Dao

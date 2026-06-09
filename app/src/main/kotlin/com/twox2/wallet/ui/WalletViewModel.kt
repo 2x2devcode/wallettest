@@ -94,6 +94,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             viewModelScope.launch {
                 repository.ensurePrimaryReceiveAddress()
                 _wallet.value = repository.getWallet()
+                repository.syncWalletFromExplorer()
             }
             startAutoSync()
             observeSyncForPeriodicVerification()
@@ -140,7 +141,10 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             while (isActive && _hasWallet.value && syncProgress.value.isSynced) {
                 delay(30_000)
                 if (!_hasWallet.value || !syncProgress.value.isSynced) break
-                runCatching { repository.verifySync() }
+                runCatching {
+                    repository.verifySync()
+                    repository.syncWalletFromExplorer()
+                }
             }
         }
     }
@@ -235,6 +239,12 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             _usdPriceLoading.value = true
             _usdPrice.value = repository.fetchUsdPrice()
             _usdPriceLoading.value = false
+        }
+    }
+
+    fun refreshWalletBalance() {
+        viewModelScope.launch {
+            runCatching { repository.syncWalletFromExplorer() }
         }
     }
 
