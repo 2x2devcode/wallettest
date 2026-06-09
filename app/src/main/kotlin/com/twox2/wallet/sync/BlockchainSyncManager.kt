@@ -50,6 +50,8 @@ class BlockchainSyncManager(context: Context) {
 
     suspend fun startSync() = withContext(Dispatchers.IO) {
         if (running) return@withContext
+        restoreSyncedStateIfNeeded()
+        if (synced) return@withContext
         running = true
         try {
             runSyncLoop()
@@ -83,6 +85,15 @@ class BlockchainSyncManager(context: Context) {
         if (!repairChainToExplorer(networkTip)) return@withContext
         if (localTip.height < networkTip || !isSyncedWithMainnet(blockDao.getTip()!!, networkTip)) {
             runSyncLoop()
+        }
+    }
+
+    private suspend fun restoreSyncedStateIfNeeded() {
+        val networkTip = ExplorerApi.getBlockCountWithRetry() ?: return
+        val localTip = blockDao.getTip() ?: return
+        if (isSyncedWithMainnet(localTip, networkTip)) {
+            synced = true
+            updateProgress(100, isSyncing = false, height = localTip.height)
         }
     }
 
@@ -509,6 +520,7 @@ class BlockchainSyncManager(context: Context) {
             height = blockHeight,
             progress = progress.coerceIn(0, 100),
             isSyncing = syncing,
+            isSynced = synced,
             peer = peerHost,
             connectedPeers = peersList,
             blockCount = blockHeight
@@ -543,6 +555,7 @@ data class SyncProgress(
     val height: Int = 0,
     val progress: Int = 0,
     val isSyncing: Boolean = false,
+    val isSynced: Boolean = false,
     val peer: String? = null,
     val connectedPeers: List<String> = emptyList(),
     val blockCount: Int = 0

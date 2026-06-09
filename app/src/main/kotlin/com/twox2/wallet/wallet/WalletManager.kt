@@ -5,6 +5,8 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.twox2.wallet.crypto.AddressEncoder
 import com.twox2.wallet.crypto.Bip32
+import com.twox2.wallet.crypto.isLegacyBase58Address
+import com.twox2.wallet.crypto.resolveLegacyAddress
 import com.twox2.wallet.crypto.Secp256k1
 import com.twox2.wallet.data.db.SavedAddressEntity
 import com.twox2.wallet.data.db.WalletDatabase
@@ -80,10 +82,14 @@ class WalletManager private constructor(context: Context) {
             val wallet = loadWallet() ?: return emptyList()
             return listOf(AddressEncoder.addressToScriptPubKey(wallet.address).toHex())
         }
-        return addresses.map { AddressEncoder.addressToScriptPubKey(it.address).toHex() }
+        return addresses.mapNotNull { entity ->
+            val legacy = resolveLegacyAddress(entity.address, entity.cashAddress, entity.publicKeyHex)
+            if (legacy.isBlank()) null else AddressEncoder.addressToScriptPubKey(legacy).toHex()
+        }
     }
 
     suspend fun ensurePrimaryReceiveAddress(info: WalletInfo) {
+        migrateReceiveAddresses(info)
         val existing = db.savedAddressDao().getByType("receive")
         if (existing.isEmpty()) {
             db.savedAddressDao().insert(
@@ -97,6 +103,38 @@ class WalletManager private constructor(context: Context) {
                     publicKeyHex = info.publicKey.toHex()
                 )
             )
+        }
+    }
+
+    suspend fun migrateReceiveAddresses(info: WalletInfo? = loadWallet()) {
+        val wallet = info ?: return
+        val addresses = db.savedAddressDao().getByType("receive")
+        for (entity in addresses) {
+            val privateKey = entity.privateKeyHex?.hexToBytes()
+                ?: if (entity.isDefault) wallet.privateKey else null
+            val publicKey = when {
+                entity.publicKeyHex != null -> {
+                    val stored = entity.publicKeyHex.hexToBytes()
+                    ensureCompressedPublicKey(stored, privateKey ?: wallet.privateKey)
+                }
+                privateKey != null -> Secp256k1.publicKeyFromPrivate(privateKey)
+                entity.isDefault -> wallet.publicKey
+                else -> continue
+            }
+            val legacyAddress = AddressEncoder.publicKeyToAddress(publicKey)
+            val needsMigration = !isLegacyBase58Address(entity.address) ||
+                entity.address != legacyAddress ||
+                AddressEncoder.cashAddrToLegacyAddress(entity.address) != null
+            if (needsMigration) {
+                db.savedAddressDao().update(
+                    entity.copy(
+                        address = legacyAddress,
+                        cashAddress = AddressEncoder.publicKeyToCashAddress(publicKey),
+                        publicKeyHex = publicKey.toHex(),
+                        privateKeyHex = privateKey?.toHex() ?: entity.privateKeyHex
+                    )
+                )
+            }
         }
     }
 
@@ -121,7 +159,13 @@ class WalletManager private constructor(context: Context) {
         val normalized = scriptPubKeyHex.lowercase()
         val receiveAddresses = db.savedAddressDao().getByType("receive")
         for (entity in receiveAddresses) {
-            val script = AddressEncoder.addressToScriptPubKey(entity.address).toHex().lowercase()
+            val legacyAddress = resolveLegacyAddress(
+                entity.address,
+                entity.cashAddress,
+                entity.publicKeyHex
+            )
+            if (legacyAddress.isBlank()) continue
+            val script = AddressEncoder.addressToScriptPubKey(legacyAddress).toHex().lowercase()
             if (script == normalized) {
                 val privateKey = entity.privateKeyHex?.hexToBytes() ?: continue
                 val publicKey = entity.publicKeyHex?.hexToBytes()

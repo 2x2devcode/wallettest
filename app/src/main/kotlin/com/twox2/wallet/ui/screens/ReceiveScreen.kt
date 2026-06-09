@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.twox2.wallet.crypto.receiveDisplayAddress
 import com.twox2.wallet.ui.WalletViewModel
 import com.twox2.wallet.ui.components.AddressBookSection
 import com.twox2.wallet.ui.components.QrCodeImage
@@ -57,12 +58,14 @@ import com.twox2.wallet.ui.theme.TextMuted
 @Composable
 fun ReceiveScreen(viewModel: WalletViewModel, onBack: (() -> Unit)? = null) {
     val receiveAddresses by viewModel.receiveAddresses.collectAsState()
+    val wallet by viewModel.wallet.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
     var newAddressName by remember { mutableStateOf("") }
     val context = LocalContext.current
 
     val selected = viewModel.selectedReceiveAddress(receiveAddresses)
-    val displayAddress = selected?.cashAddress?.ifBlank { selected.address } ?: ""
+    val displayAddress = selected?.receiveDisplayAddress()?.takeIf { it.isNotBlank() }
+        ?: wallet?.receiveDisplayAddress().orEmpty()
 
     Column(
         modifier = Modifier
@@ -74,11 +77,10 @@ fun ReceiveScreen(viewModel: WalletViewModel, onBack: (() -> Unit)? = null) {
             WalletHeader(
                 title = "Receive 2X2Coin",
                 showBack = true,
-                onBack = onBack,
-                showMenu = false
+                onBack = onBack
             )
         } else {
-            WalletHeader(title = "Receive 2X2Coin", showMenu = false)
+            WalletHeader(title = "Receive 2X2Coin")
         }
 
         Row(

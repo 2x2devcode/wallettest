@@ -60,9 +60,7 @@ fun OverviewScreen(
     val balance by viewModel.balance.collectAsState()
     val transactions by viewModel.transactions.collectAsState()
     val syncProgress by viewModel.syncProgress.collectAsState()
-    val isVerifying by viewModel.isVerifying.collectAsState()
     val blockCount by viewModel.blockCount.collectAsState()
-    val isConnected = syncProgress.connectedPeers.isNotEmpty() || syncProgress.isSyncing
     val blockHeight = syncProgress.height.takeIf { it > 0 } ?: blockCount
 
     Column(
@@ -70,9 +68,9 @@ fun OverviewScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        WalletHeader(isConnected = isConnected)
+        WalletHeader()
 
-        SyncStatusText(syncProgress, isVerifying)
+        SyncStatusText(syncProgress, isVerifying = false)
 
         BalanceCard(
             balance = viewModel.formatBalanceShort(balance),

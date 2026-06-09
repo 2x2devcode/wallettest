@@ -45,9 +45,6 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private val _darkTheme = MutableStateFlow(repository.isDarkTheme)
     val darkTheme: StateFlow<Boolean> = _darkTheme.asStateFlow()
 
-    private val _isVerifying = MutableStateFlow(false)
-    val isVerifying: StateFlow<Boolean> = _isVerifying.asStateFlow()
-
     private val _explorerBlockCount = MutableStateFlow<Int?>(null)
     val explorerBlockCount: StateFlow<Int?> = _explorerBlockCount.asStateFlow()
 
@@ -88,9 +85,12 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         if (_hasWallet.value) {
-            viewModelScope.launch { repository.ensurePrimaryReceiveAddress() }
+            viewModelScope.launch {
+                repository.ensurePrimaryReceiveAddress()
+                _wallet.value = repository.getWallet()
+            }
             startAutoSync()
-            startPeriodicVerification()
+            observeSyncForPeriodicVerification()
         }
     }
 
@@ -100,7 +100,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             _wallet.value = info
             _hasWallet.value = true
             startAutoSync()
-            startPeriodicVerification()
+            observeSyncForPeriodicVerification()
         }
     }
 
@@ -111,9 +111,19 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 _wallet.value = info
                 _hasWallet.value = true
                 startAutoSync()
-                startPeriodicVerification()
+                observeSyncForPeriodicVerification()
             }.onFailure {
                 _snackbar.value = it.message ?: "Falha ao restaurar carteira"
+            }
+        }
+    }
+
+    private fun observeSyncForPeriodicVerification() {
+        viewModelScope.launch {
+            syncProgress.collect { progress ->
+                if (progress.isSynced && verificationJob?.isActive != true) {
+                    startPeriodicVerification()
+                }
             }
         }
     }
@@ -121,12 +131,10 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private fun startPeriodicVerification() {
         verificationJob?.cancel()
         verificationJob = viewModelScope.launch {
-            while (isActive && _hasWallet.value) {
+            while (isActive && _hasWallet.value && syncProgress.value.isSynced) {
                 delay(30_000)
-                if (!_hasWallet.value) break
-                _isVerifying.value = true
+                if (!_hasWallet.value || !syncProgress.value.isSynced) break
                 runCatching { repository.verifySync() }
-                _isVerifying.value = false
             }
         }
     }

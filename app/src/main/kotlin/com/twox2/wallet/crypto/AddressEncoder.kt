@@ -13,6 +13,19 @@ object AddressEncoder {
         return CashAddr.encode(hash160)
     }
 
+    fun cashAddrToLegacyAddress(cashAddr: String): String? = runCatching {
+        val trimmed = cashAddr.trim()
+        if (trimmed.isBlank()) return null
+        val normalized = when {
+            trimmed.contains(':') -> trimmed
+            trimmed.startsWith('q') || trimmed.startsWith('p') ->
+                "${ChainParams.CASHADDR_PREFIX}:$trimmed"
+            else -> return null
+        }
+        val hash160 = CashAddr.decode(normalized)
+        Base58.encodeCheck(ChainParams.ADDRESS_VERSION, hash160)
+    }.getOrNull()
+
     fun isValidAddress(address: String): Boolean = runCatching {
         if (address.contains(':')) {
             CashAddr.decode(address)

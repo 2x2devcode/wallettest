@@ -20,10 +20,11 @@ enum class SyncDisplayStatus(val message: String) {
 }
 
 fun resolveSyncStatus(syncProgress: SyncProgress, isVerifying: Boolean): SyncDisplayStatus {
+    if (syncProgress.isSynced && !syncProgress.isSyncing) return SyncDisplayStatus.SYNCED
+    if (syncProgress.isSyncing) return SyncDisplayStatus.SYNCING
     if (isVerifying) return SyncDisplayStatus.VERIFYING
     if (syncProgress.connectedPeers.isEmpty()) return SyncDisplayStatus.WAITING_PEERS
-    if (syncProgress.isSyncing) return SyncDisplayStatus.SYNCING
-    return SyncDisplayStatus.SYNCED
+    return SyncDisplayStatus.SYNCING
 }
 
 @Composable
