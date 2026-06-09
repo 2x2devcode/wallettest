@@ -85,8 +85,7 @@ fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
         WalletHeader(
             title = "Send 2X2Coin",
             showBack = true,
-            onBack = onBack,
-            showMenu = false
+            onBack = onBack
         )
 
         StyledInputField(
@@ -143,7 +142,11 @@ fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
             addresses = sendAddresses,
             selectedId = sendAddresses.find { it.address == address || it.cashAddress == address }?.id,
             onSelect = { entry ->
-                address = entry.address.ifBlank { entry.cashAddress }
+                address = com.twox2.wallet.crypto.resolveLegacyAddress(
+                    entry.address,
+                    entry.cashAddress,
+                    entry.publicKeyHex
+                )
             },
             onDelete = { viewModel.deleteSavedAddress(it) }
         )

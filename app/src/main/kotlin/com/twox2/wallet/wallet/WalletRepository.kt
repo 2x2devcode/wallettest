@@ -34,7 +34,10 @@ class WalletRepository(context: Context) {
     fun getWallet(): WalletInfo? = walletManager.loadWallet()
 
     suspend fun ensurePrimaryReceiveAddress() = withContext(Dispatchers.IO) {
-        walletManager.loadWallet()?.let { walletManager.ensurePrimaryReceiveAddress(it) }
+        walletManager.loadWallet()?.let { info ->
+            walletManager.ensurePrimaryReceiveAddress(info)
+            walletManager.migrateReceiveAddresses(info)
+        }
     }
 
     suspend fun createWallet(): WalletInfo = withContext(Dispatchers.IO) {

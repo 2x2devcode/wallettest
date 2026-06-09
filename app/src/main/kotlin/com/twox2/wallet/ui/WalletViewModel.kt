@@ -85,7 +85,10 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         if (_hasWallet.value) {
-            viewModelScope.launch { repository.ensurePrimaryReceiveAddress() }
+            viewModelScope.launch {
+                repository.ensurePrimaryReceiveAddress()
+                _wallet.value = repository.getWallet()
+            }
             startAutoSync()
             observeSyncForPeriodicVerification()
         }

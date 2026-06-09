@@ -68,7 +68,7 @@ fun OverviewScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        WalletHeader(showConnectionStatus = false, showMenu = false)
+        WalletHeader()
 
         SyncStatusText(syncProgress, isVerifying = false)
 
