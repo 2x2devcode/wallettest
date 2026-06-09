@@ -2,6 +2,7 @@ package com.twox2.wallet.wallet
 
 import android.content.Context
 import com.twox2.wallet.chain.ChainParams
+import com.twox2.wallet.chain.UInt256
 import com.twox2.wallet.crypto.AddressEncoder
 import com.twox2.wallet.data.db.SavedAddressEntity
 import com.twox2.wallet.data.db.WalletTransactionEntity
@@ -47,6 +48,12 @@ class WalletRepository(context: Context) {
         ExplorerWalletSync.sync(context)
     }
 
+    suspend fun fetchExplorerBalance(): Long = withContext(Dispatchers.IO) {
+        val addresses = walletManager.getAllReceiveLegacyAddresses()
+        if (addresses.isEmpty()) return@withContext 0L
+        ExplorerWalletSync.fetchExplorerBalance(addresses)
+    }
+
     suspend fun createWallet(): WalletInfo = withContext(Dispatchers.IO) {
         val info = walletManager.createWallet()
         walletManager.ensurePrimaryReceiveAddress(info)
@@ -65,6 +72,17 @@ class WalletRepository(context: Context) {
 
     suspend fun verifySync() = withContext(Dispatchers.IO) {
         SyncEngine.verifySync(context)
+    }
+
+    suspend fun reindexBlockchain() = withContext(Dispatchers.IO) {
+        SyncEngine.reindexBlockchain(context)
+        fetchExplorerBalance()
+    }
+
+    suspend fun deleteWallet() = withContext(Dispatchers.IO) {
+        SyncEngine.stopSync()
+        walletManager.clearChainData()
+        walletManager.deleteWallet(context)
     }
 
     suspend fun fetchExplorerBlockCount(): Int? = ExplorerApi.getBlockCount()
@@ -95,29 +113,6 @@ class WalletRepository(context: Context) {
         walletManager.deleteSavedAddress(id)
     }
 
-    suspend fun estimateSendFee(amountCoins: Double, feeTier: FeeTier): Long = withContext(Dispatchers.IO) {
-        val amount = (amountCoins * ChainParams.COIN).toLong()
-        val utxos = walletManager.getDatabase().utxoDao().getUnspent()
-        val spendable = utxos.filter { walletManager.resolveSigningKey(it.scriptPubKey) != null }
-        if (spendable.isEmpty()) return@withContext feeTier.estimateDefaultFee()
-
-        val sorted = spendable.sortedByDescending { it.value }
-        var total = 0L
-        var inputCount = 0
-        for (utxo in sorted) {
-            inputCount++
-            total += utxo.value
-            var outputCount = 2
-            var fee = TransactionBuilder.estimateFee(inputCount, outputCount, feeTier.feePerByte)
-            if (total - amount - fee <= TransactionBuilder.DUST_THRESHOLD) {
-                outputCount = 1
-                fee = TransactionBuilder.estimateFee(inputCount, outputCount, feeTier.feePerByte)
-            }
-            if (total >= amount + fee) return@withContext fee
-        }
-        feeTier.estimateDefaultFee()
-    }
-
     suspend fun sendCoins(
         toAddress: String,
         amountCoins: Double,
@@ -132,6 +127,7 @@ class WalletRepository(context: Context) {
 
             val wallet = walletManager.loadWallet() ?: error("Carteira não encontrada")
             val amount = (amountCoins * ChainParams.COIN).toLong()
+            val fixedFee = feeTier.feeSatoshis
             val db = walletManager.getDatabase()
             val utxos = db.utxoDao().getUnspent()
             val utxoKeys = mutableMapOf<Long, TransactionBuilder.SigningKey>()
@@ -144,6 +140,15 @@ class WalletRepository(context: Context) {
             val spendableUtxos = utxos.filter { utxoKeys.containsKey(it.id) }
             require(spendableUtxos.isNotEmpty()) { "Nenhum UTXO disponível para gastar" }
 
+            val explorerBalance = fetchExplorerBalance()
+            val spendableTotal = spendableUtxos.sumOf { it.value }
+            require(spendableTotal >= amount + fixedFee) {
+                "Saldo insuficiente (disponível: ${spendableTotal / ChainParams.COIN} ${ChainParams.CURRENCY})"
+            }
+            if (explorerBalance > 0 && spendableTotal > explorerBalance) {
+                ExplorerWalletSync.sync(context)
+            }
+
             val networkTime = ExplorerApi.getLatestBlockTime() ?: (System.currentTimeMillis() / 1000)
             val buildResult = TransactionBuilder.buildAndSign(
                 utxos = spendableUtxos,
@@ -151,7 +156,7 @@ class WalletRepository(context: Context) {
                 toAddress = toAddress.trim(),
                 amount = amount,
                 changeAddress = wallet.address,
-                feePerByte = feeTier.feePerByte,
+                fixedFee = fixedFee,
                 networkTime = networkTime
             )
             val tx = buildResult.transaction

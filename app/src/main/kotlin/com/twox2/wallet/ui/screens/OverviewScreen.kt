@@ -50,6 +50,7 @@ import com.twox2.wallet.ui.theme.OrangeSendStart
 import com.twox2.wallet.ui.theme.TealPrimary
 import com.twox2.wallet.ui.theme.TealReceiveEnd
 import com.twox2.wallet.ui.theme.TealReceiveStart
+import androidx.compose.ui.graphics.Color
 import com.twox2.wallet.ui.theme.TextMuted
 
 @Composable
@@ -59,7 +60,7 @@ fun OverviewScreen(
     onNavigateToReceive: () -> Unit,
     onNavigateToHistory: () -> Unit
 ) {
-    val balance by viewModel.balance.collectAsState()
+    val balance by viewModel.displayBalance.collectAsState()
     val transactions by viewModel.transactions.collectAsState()
     val syncProgress by viewModel.syncProgress.collectAsState()
     val blockCount by viewModel.blockCount.collectAsState()
@@ -191,7 +192,7 @@ private fun BalanceCard(balance: String, usdEstimate: String, blockHeight: Int) 
                 balance,
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
+                color = Color.White
             )
             Text(
                 usdEstimate,

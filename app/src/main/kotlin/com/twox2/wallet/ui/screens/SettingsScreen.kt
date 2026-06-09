@@ -3,7 +3,6 @@ package com.twox2.wallet.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -20,7 +19,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -31,13 +33,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.twox2.wallet.ui.WalletViewModel
 import com.twox2.wallet.ui.components.PageHeader
@@ -53,8 +61,13 @@ fun SettingsScreen(viewModel: WalletViewModel) {
     val blockCount by viewModel.blockCount.collectAsState()
     val explorerBlockCount by viewModel.explorerBlockCount.collectAsState()
     val explorerLoading by viewModel.explorerLoading.collectAsState()
+    val reindexing by viewModel.reindexing.collectAsState()
+    val deletingWallet by viewModel.deletingWallet.collectAsState()
     val context = LocalContext.current
     val wif = wallet?.wif
+
+    var showReindexDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     val saveLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")
@@ -150,6 +163,35 @@ fun SettingsScreen(viewModel: WalletViewModel) {
                         color = TealPrimary
                     )
                 }
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = { showReindexDialog = true },
+                    enabled = !reindexing,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, TealPrimary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TealPrimary)
+                ) {
+                    if (reindexing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = TealPrimary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                    Text(
+                        if (reindexing) "Reindexando..." else "Reindexar blockchain",
+                        modifier = Modifier.padding(start = 6.dp)
+                    )
+                }
+                Text(
+                    "Exclui blocos locais, transações e saldo, e baixa tudo novamente da rede.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
             }
         }
 
@@ -212,6 +254,45 @@ fun SettingsScreen(viewModel: WalletViewModel) {
 
         Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             Column(modifier = Modifier.padding(16.dp)) {
+                Text("Zona de Perigo", style = MaterialTheme.typography.titleSmall, color = Color(0xFFEF4444))
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Excluir a carteira remove permanentemente todas as chaves, transações e dados locais.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = { showDeleteDialog = true },
+                    enabled = !deletingWallet,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFEF4444),
+                        contentColor = Color.White
+                    )
+                ) {
+                    if (deletingWallet) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                    Text(
+                        if (deletingWallet) "Excluindo..." else "Excluir carteira",
+                        modifier = Modifier.padding(start = 6.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Text("Sobre", style = MaterialTheme.typography.titleSmall)
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Text("2X2 Wallet v${com.twox2.wallet.BuildConfig.VERSION_NAME}")
@@ -222,6 +303,66 @@ fun SettingsScreen(viewModel: WalletViewModel) {
                 )
             }
         }
+    }
+
+    if (showReindexDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!reindexing) showReindexDialog = false },
+            title = { Text("Reindexar blockchain?") },
+            text = {
+                Text(
+                    "Isso irá excluir todos os blocos, transações e saldo locais, " +
+                        "e baixar novamente da rede. Suas chaves da carteira serão mantidas."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showReindexDialog = false
+                        viewModel.reindexBlockchain()
+                    },
+                    enabled = !reindexing
+                ) { Text("Reindexar") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showReindexDialog = false },
+                    enabled = !reindexing
+                ) { Text("Cancelar") }
+            }
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!deletingWallet) showDeleteDialog = false },
+            title = { Text("Excluir carteira?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "ATENÇÃO: Esta ação é irreversível.\n\n" +
+                        "Todos os dados serão perdidos permanentemente, incluindo chaves privadas, " +
+                        "transações e saldo local.\n\n" +
+                        "Certifique-se de ter salvo sua chave WIF antes de continuar."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        viewModel.deleteWallet()
+                    },
+                    enabled = !deletingWallet
+                ) {
+                    Text("Excluir permanentemente", color = Color(0xFFEF4444))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteDialog = false },
+                    enabled = !deletingWallet
+                ) { Text("Cancelar") }
+            }
+        )
     }
 }
 

@@ -45,6 +45,9 @@ interface UtxoDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(utxo: UtxoEntity)
 
+    @Update
+    suspend fun update(utxo: UtxoEntity)
+
     @Query("SELECT * FROM utxos WHERE spent = 0 ORDER BY value DESC")
     suspend fun getUnspent(): List<UtxoEntity>
 
@@ -54,11 +57,20 @@ interface UtxoDao {
     @Query("UPDATE utxos SET spent = 1 WHERE txHash = :txHash AND outputIndex = :index")
     suspend fun markSpent(txHash: String, index: Int)
 
+    @Query("UPDATE utxos SET spent = 0, value = :value WHERE txHash = :txHash AND outputIndex = :index")
+    suspend fun unmarkSpent(txHash: String, index: Int, value: Long)
+
     @Query("SELECT * FROM utxos WHERE scriptPubKey = :scriptHex AND spent = 0")
     suspend fun getByScript(scriptHex: String): List<UtxoEntity>
 
     @Query("SELECT * FROM utxos WHERE txHash = :txHash AND outputIndex = :outputIndex LIMIT 1")
     suspend fun findByOutpoint(txHash: String, outputIndex: Int): UtxoEntity?
+
+    @Query("DELETE FROM utxos")
+    suspend fun deleteAll()
+
+    @Query("UPDATE utxos SET spent = 1")
+    suspend fun markAllSpent()
 }
 
 @Dao
@@ -77,6 +89,9 @@ interface WalletTransactionDao {
 
     @Query("SELECT COUNT(*) > 0 FROM wallet_transactions WHERE txHash = :txHash")
     suspend fun exists(txHash: String): Boolean
+
+    @Query("DELETE FROM wallet_transactions")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -89,6 +104,9 @@ interface SyncStateDao {
 
     @Query("SELECT * FROM sync_state WHERE id = 1")
     suspend fun get(): SyncStateEntity?
+
+    @Query("DELETE FROM sync_state")
+    suspend fun deleteAll()
 }
 
 @Dao
@@ -113,4 +131,7 @@ interface SavedAddressDao {
 
     @Query("UPDATE saved_addresses SET isDefault = 0 WHERE type = :type")
     suspend fun clearDefault(type: String)
+
+    @Query("DELETE FROM saved_addresses")
+    suspend fun deleteAll()
 }

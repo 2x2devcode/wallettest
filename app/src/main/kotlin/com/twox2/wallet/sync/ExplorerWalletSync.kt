@@ -48,9 +48,8 @@ object ExplorerWalletSync {
                     val ourOutputs = detail.outputs.withIndex()
                         .filter { it.value.address in addressSet && it.value.amount > 0 }
 
-                    val sentCoins = summary.sent
-                    if (sentCoins > 0) {
-                        val sentSat = (sentCoins * ChainParams.COIN).toLong()
+                    if (summary.sent > 0) {
+                        val sentSat = (summary.sent * ChainParams.COIN).toLong()
                         if (!txDao.exists(summary.txid)) {
                             txDao.insert(
                                 WalletTransactionEntity(
@@ -87,7 +86,13 @@ object ExplorerWalletSync {
                         }
 
                         for ((index, output) in ourOutputs) {
-                            if (utxoDao.findByOutpoint(summary.txid, index) != null) continue
+                            val existing = utxoDao.findByOutpoint(summary.txid, index)
+                            if (existing != null) {
+                                if (existing.spent) {
+                                    utxoDao.unmarkSpent(summary.txid, index, output.amount)
+                                }
+                                continue
+                            }
                             utxoDao.insert(
                                 UtxoEntity(
                                     txHash = summary.txid,
@@ -112,7 +117,7 @@ object ExplorerWalletSync {
 
         val pruned = reconcileUtxos(addresses, utxoDao)
         val localBalance = utxoDao.getUnspent().sumOf { it.value }
-        val explorerBalance = addresses.sumOf { ExplorerApi.getAddressBalance(it) ?: 0L }
+        val explorerBalance = fetchExplorerBalance(addresses)
         if (importedUtxos > 0 || importedTxs > 0 || pruned > 0) {
             Log.i(
                 TAG,
@@ -122,17 +127,60 @@ object ExplorerWalletSync {
         } else if (explorerBalance != localBalance) {
             Log.w(
                 TAG,
-                "Saldo explorer ($explorerBalance) != local ($localBalance) após reconciliação"
+                "Saldo explorer ($explorerBalance) != local ($localBalance) — reconstruindo UTXOs"
             )
+            rebuildUtxosFromExplorer(addresses, addressSet, utxoDao)
         }
     }
 
-    /**
-     * Remove UTXOs locais que excedem o saldo confirmado no explorer.
-     * Isso evita tentativas de gasto com outputs já consumidos na rede.
-     */
+    suspend fun fetchExplorerBalance(addresses: List<String>): Long {
+        return addresses.sumOf { ExplorerApi.getAddressBalance(it) ?: 0L }
+    }
+
+    suspend fun rebuildUtxosFromExplorer(
+        addresses: List<String>,
+        addressSet: Set<String>,
+        utxoDao: UtxoDao
+    ) {
+        utxoDao.markAllSpent()
+        for (address in addresses) {
+            var start = 0
+            repeat(MAX_TX_PAGES) {
+                val page = ExplorerApi.getAddressTxs(address, start, TX_PAGE_SIZE)
+                if (page.isEmpty()) return@repeat
+                for (summary in page) {
+                    val detail = ExplorerApi.getTx(summary.txid) ?: continue
+                    val ourOutputs = detail.outputs.withIndex()
+                        .filter { it.value.address in addressSet && it.value.amount > 0 }
+                    for ((index, output) in ourOutputs) {
+                        val existing = utxoDao.findByOutpoint(summary.txid, index)
+                        if (existing != null) {
+                            utxoDao.unmarkSpent(summary.txid, index, output.amount)
+                        } else {
+                            utxoDao.insert(
+                                UtxoEntity(
+                                    txHash = summary.txid,
+                                    outputIndex = index,
+                                    value = output.amount,
+                                    scriptPubKey = AddressEncoder
+                                        .addressToScriptPubKey(output.address)
+                                        .toHex(),
+                                    blockHeight = detail.blockHeight,
+                                    spent = false
+                                )
+                            )
+                        }
+                    }
+                }
+                start += TX_PAGE_SIZE
+                if (page.size < TX_PAGE_SIZE) return@repeat
+            }
+        }
+        reconcileUtxos(addresses, utxoDao)
+    }
+
     suspend fun reconcileUtxos(addresses: List<String>, utxoDao: UtxoDao): Int {
-        val explorerTotal = addresses.sumOf { ExplorerApi.getAddressBalance(it) ?: 0L }
+        val explorerTotal = fetchExplorerBalance(addresses)
         val unspent = utxoDao.getUnspent().sortedBy { it.blockHeight }
         val localTotal = unspent.sumOf { it.value }
         if (localTotal <= explorerTotal) return 0

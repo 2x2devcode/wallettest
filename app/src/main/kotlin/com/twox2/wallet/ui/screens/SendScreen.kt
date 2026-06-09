@@ -63,19 +63,33 @@ import com.twox2.wallet.ui.theme.TextMuted
 import com.twox2.wallet.wallet.WalletRepository
 
 @Composable
-fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
+fun SendScreen(
+    viewModel: WalletViewModel,
+    onBack: () -> Unit = {},
+    onSendSuccess: () -> Unit = {}
+) {
     var address by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var selectedFee by remember { mutableStateOf(FeeTier.STANDARD) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var saveName by remember { mutableStateOf("") }
     val sendState by viewModel.sendState.collectAsState()
-    val balance by viewModel.balance.collectAsState()
+    val balance by viewModel.displayBalance.collectAsState()
     val sendAddresses by viewModel.sendAddresses.collectAsState()
     val estimatedFeeSat by viewModel.estimatedFee.collectAsState()
 
-    LaunchedEffect(amount, selectedFee) {
-        viewModel.updateEstimatedFee(amount, selectedFee)
+    LaunchedEffect(selectedFee) {
+        viewModel.updateEstimatedFee(selectedFee)
+    }
+
+    LaunchedEffect(sendState) {
+        if (sendState is SendState.Success) {
+            address = ""
+            amount = ""
+            selectedFee = FeeTier.STANDARD
+            viewModel.resetSendState()
+            onSendSuccess()
+        }
     }
 
     val addressValidation = viewModel.validateAddress(address)
@@ -237,13 +251,6 @@ fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
         )
 
         when (val state = sendState) {
-            is SendState.Success -> {
-                Text(
-                    "Sent! TX: ${state.txHash}",
-                    color = TealPrimary,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
             is SendState.Error -> {
                 Text(
                     state.message,

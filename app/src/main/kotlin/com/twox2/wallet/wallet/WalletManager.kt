@@ -273,6 +273,19 @@ class WalletManager private constructor(context: Context) {
 
     fun getDatabase() = db
 
+    suspend fun clearChainData() {
+        db.blockHeaderDao().deleteAll()
+        db.utxoDao().deleteAll()
+        db.walletTransactionDao().deleteAll()
+        db.syncStateDao().deleteAll()
+        db.savedAddressDao().deleteAll()
+    }
+
+    fun deleteWallet(context: Context) {
+        prefs.edit().clear().apply()
+        context.getSharedPreferences("sync_prefs", Context.MODE_PRIVATE).edit().clear().apply()
+    }
+
     companion object {
         private const val KEY_PRIVATE = "private_key"
         private const val KEY_PUBLIC = "public_key"

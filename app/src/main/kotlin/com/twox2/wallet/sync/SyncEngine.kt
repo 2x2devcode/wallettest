@@ -37,4 +37,9 @@ object SyncEngine {
         init(context)
         manager?.verifySync()
     }
+
+    suspend fun reindexBlockchain(context: Context) {
+        init(context)
+        manager?.reindexBlockchain()
+    }
 }
