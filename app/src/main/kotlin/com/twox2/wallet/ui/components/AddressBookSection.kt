@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.twox2.wallet.crypto.receiveDisplayAddress
 import com.twox2.wallet.data.db.SavedAddressEntity
 import com.twox2.wallet.ui.theme.GreenAccent
 import com.twox2.wallet.ui.theme.SurfaceDark
@@ -70,7 +71,7 @@ fun AddressBookSection(
                         Column(modifier = Modifier.weight(1f).padding(start = if (showRadio) 0.dp else 4.dp)) {
                             Text(entry.name, fontWeight = FontWeight.SemiBold, color = GreenAccent)
                             Text(
-                                shortenAddress(entry.cashAddress.ifBlank { entry.address }),
+                                shortenAddress(entry.receiveDisplayAddress()),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextMuted
                             )

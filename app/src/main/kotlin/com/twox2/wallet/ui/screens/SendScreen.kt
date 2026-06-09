@@ -143,7 +143,7 @@ fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
             addresses = sendAddresses,
             selectedId = sendAddresses.find { it.address == address || it.cashAddress == address }?.id,
             onSelect = { entry ->
-                address = entry.cashAddress.ifBlank { entry.address }
+                address = entry.address.ifBlank { entry.cashAddress }
             },
             onDelete = { viewModel.deleteSavedAddress(it) }
         )

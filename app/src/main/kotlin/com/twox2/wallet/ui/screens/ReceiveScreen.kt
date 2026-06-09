@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.twox2.wallet.crypto.receiveDisplayAddress
 import com.twox2.wallet.ui.WalletViewModel
 import com.twox2.wallet.ui.components.AddressBookSection
 import com.twox2.wallet.ui.components.QrCodeImage
@@ -62,7 +63,7 @@ fun ReceiveScreen(viewModel: WalletViewModel, onBack: (() -> Unit)? = null) {
     val context = LocalContext.current
 
     val selected = viewModel.selectedReceiveAddress(receiveAddresses)
-    val displayAddress = selected?.cashAddress?.ifBlank { selected.address } ?: ""
+    val displayAddress = selected?.receiveDisplayAddress().orEmpty()
 
     Column(
         modifier = Modifier
