@@ -656,6 +656,36 @@ class BlockchainSyncManager(context: Context) {
         )
     }
 
+    suspend fun reindexBlockchain() = withContext(Dispatchers.IO) {
+        Log.i(TAG, "Reindexando blockchain — limpando blocos, UTXOs e transações")
+        stopSync()
+        running = false
+        synced = false
+        blockDownloadRunning = false
+        connectedPeers.clear()
+
+        blockDao.deleteAll()
+        utxoDao.deleteAll()
+        txDao.deleteAll()
+        resetLastScannedHeight()
+        syncDao.deleteAll()
+        syncDao.insert(
+            SyncStateEntity(
+                bestHeight = 0,
+                bestHash = ChainParams.GENESIS_HASH,
+                isSyncing = true,
+                progress = 0,
+                peerHost = null,
+                blockCount = 0
+            )
+        )
+        _syncProgress.value = SyncProgress(isSyncing = true, progress = 0)
+
+        ExplorerWalletSync.sync(appContext)
+        executeSyncLoop()
+        followUpTick()
+    }
+
     private sealed class HeaderSyncResult {
         data object Success : HeaderSyncResult()
         data class AlreadySynced(val height: Int) : HeaderSyncResult()

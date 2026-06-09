@@ -13,7 +13,6 @@ import com.twox2.wallet.sync.SyncEngine
 import com.twox2.wallet.sync.SyncProgress
 import com.twox2.wallet.wallet.WalletInfo
 import com.twox2.wallet.wallet.WalletRepository
-import com.twox2.wallet.wallet.TransactionBuilder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,16 +23,14 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-enum class FeeTier(val label: String, val feePerByte: Long) {
-    STANDARD("Standard", 10L),
-    FAST("Fast", 20L),
-    PRIORITY("Priority", 40L);
-
-    fun estimateDefaultFee(): Long = TransactionBuilder.estimateFee(1, 2, feePerByte)
+enum class FeeTier(val label: String, val feeSatoshis: Long) {
+    STANDARD("Standard", 10_000L),
+    FAST("Fast", 20_000L),
+    PRIORITY("Priority", 400_000L);
 
     fun formatFeeCoins(): String {
-        val coins = estimateDefaultFee().toDouble() / ChainParams.COIN
-        return "%.6f".format(coins)
+        val coins = feeSatoshis.toDouble() / ChainParams.COIN
+        return "%.4f".format(coins)
     }
 }
 
@@ -67,6 +64,15 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     val balance = repository.balance
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    private val _displayBalance = MutableStateFlow(0L)
+    val displayBalance: StateFlow<Long> = _displayBalance.asStateFlow()
+
+    private val _reindexing = MutableStateFlow(false)
+    val reindexing: StateFlow<Boolean> = _reindexing.asStateFlow()
+
+    private val _deletingWallet = MutableStateFlow(false)
+    val deletingWallet: StateFlow<Boolean> = _deletingWallet.asStateFlow()
 
     val transactions = repository.transactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -103,6 +109,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 repository.ensurePrimaryReceiveAddress()
                 _wallet.value = repository.getWallet()
                 repository.syncWalletFromExplorer()
+                refreshDisplayBalance()
             }
             startAutoSync()
             observeSyncForPeriodicVerification()
@@ -145,6 +152,7 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 runCatching {
                     repository.verifySync()
                     repository.syncWalletFromExplorer()
+                    refreshDisplayBalance()
                 }
                 if (!syncProgress.value.isSynced) {
                     delay(10_000)
@@ -260,7 +268,45 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     fun refreshWalletBalance() {
         viewModelScope.launch {
-            runCatching { repository.syncWalletFromExplorer() }
+            runCatching {
+                repository.syncWalletFromExplorer()
+                refreshDisplayBalance()
+            }
+        }
+    }
+
+    private suspend fun refreshDisplayBalance() {
+        _displayBalance.value = repository.fetchExplorerBalance()
+    }
+
+    fun reindexBlockchain() {
+        viewModelScope.launch {
+            _reindexing.value = true
+            runCatching {
+                repository.reindexBlockchain()
+                refreshDisplayBalance()
+                _snackbar.value = "Blockchain reindexada com sucesso"
+            }.onFailure {
+                _snackbar.value = it.message ?: "Falha ao reindexar blockchain"
+            }
+            _reindexing.value = false
+        }
+    }
+
+    fun deleteWallet() {
+        viewModelScope.launch {
+            _deletingWallet.value = true
+            runCatching {
+                verificationJob?.cancel()
+                repository.deleteWallet()
+                _wallet.value = null
+                _hasWallet.value = false
+                _displayBalance.value = 0L
+                _sendState.value = SendState.Idle
+            }.onFailure {
+                _snackbar.value = it.message ?: "Falha ao excluir carteira"
+            }
+            _deletingWallet.value = false
         }
     }
 
@@ -281,18 +327,11 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         _darkTheme.value = enabled
     }
 
-    private val _estimatedFee = MutableStateFlow(0L)
+    private val _estimatedFee = MutableStateFlow(FeeTier.STANDARD.feeSatoshis)
     val estimatedFee: StateFlow<Long> = _estimatedFee.asStateFlow()
 
-    fun updateEstimatedFee(amount: String, feeTier: FeeTier) {
-        viewModelScope.launch {
-            val amountValue = amount.replace(",", ".").toDoubleOrNull() ?: 0.0
-            _estimatedFee.value = if (amountValue > 0) {
-                runCatching { repository.estimateSendFee(amountValue, feeTier) }.getOrDefault(feeTier.estimateDefaultFee())
-            } else {
-                feeTier.estimateDefaultFee()
-            }
-        }
+    fun updateEstimatedFee(feeTier: FeeTier) {
+        _estimatedFee.value = feeTier.feeSatoshis
     }
 
     fun formatFee(feeSatoshis: Long): String {

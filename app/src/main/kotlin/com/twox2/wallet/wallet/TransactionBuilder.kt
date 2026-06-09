@@ -19,36 +19,24 @@ object TransactionBuilder {
 
     data class BuildResult(val transaction: Transaction, val fee: Long)
 
-    fun estimateFee(inputCount: Int, outputCount: Int, feePerByte: Long): Long {
-        val size = estimateSize(inputCount, outputCount)
-        return size * feePerByte
-    }
-
     fun buildAndSign(
         utxos: List<UtxoEntity>,
         utxoKeys: Map<Long, SigningKey>,
         toAddress: String,
         amount: Long,
         changeAddress: String,
-        feePerByte: Long = 10L,
+        fixedFee: Long,
         networkTime: Long = System.currentTimeMillis() / 1000
     ): BuildResult {
         require(AddressEncoder.isValidAddress(toAddress)) { "Endereço de destino inválido" }
         require(amount > DUST) { "Valor abaixo do mínimo" }
+        require(fixedFee > 0) { "Taxa inválida" }
 
-        val selected = selectUtxos(utxos, amount, feePerByte)
+        val selected = selectUtxos(utxos, amount, fixedFee)
         val totalInput = selected.sumOf { it.value }
+        require(totalInput >= amount + fixedFee) { "Saldo insuficiente" }
 
-        var outputCount = 2
-        var fee = estimateFee(selected.size, outputCount, feePerByte)
-        var change = totalInput - amount - fee
-        if (change <= DUST) {
-            outputCount = 1
-            fee = estimateFee(selected.size, outputCount, feePerByte)
-            change = totalInput - amount - fee
-        }
-        require(totalInput >= amount + fee) { "Saldo insuficiente" }
-
+        val change = totalInput - amount - fixedFee
         val outputs = mutableListOf(TxOut(amount, AddressEncoder.addressToScriptPubKey(toAddress)))
         if (change > DUST) {
             outputs.add(TxOut(change, AddressEncoder.addressToScriptPubKey(changeAddress)))
@@ -62,25 +50,12 @@ object TransactionBuilder {
             )
         }
 
-        var tx = Transaction(
+        val tx = Transaction(
             version = 1,
             time = networkTime,
             inputs = inputs,
             outputs = outputs
         )
-
-        val actualSize = tx.serialize().size
-        val actualFee = actualSize * feePerByte
-        val actualChange = totalInput - amount - actualFee
-        if (actualFee != fee || (actualChange > DUST) != (change > DUST)) {
-            fee = actualFee
-            val rebuiltOutputs = mutableListOf(TxOut(amount, AddressEncoder.addressToScriptPubKey(toAddress)))
-            if (actualChange > DUST) {
-                rebuiltOutputs.add(TxOut(actualChange, AddressEncoder.addressToScriptPubKey(changeAddress)))
-            }
-            require(totalInput >= amount + fee) { "Saldo insuficiente para valor + taxa" }
-            tx = tx.copy(outputs = rebuiltOutputs)
-        }
 
         val signedInputs = inputs.mapIndexed { index, input ->
             val utxo = selected[index]
@@ -98,14 +73,13 @@ object TransactionBuilder {
         }
 
         val signedTx = tx.copy(inputs = signedInputs)
-        val finalFee = totalInput - signedTx.outputs.sumOf { it.value }
-        return BuildResult(signedTx, finalFee)
+        return BuildResult(signedTx, fixedFee)
     }
 
     private fun selectUtxos(
         utxos: List<UtxoEntity>,
         target: Long,
-        feePerByte: Long
+        fixedFee: Long
     ): List<UtxoEntity> {
         val sorted = utxos.sortedByDescending { it.value }
         val selected = mutableListOf<UtxoEntity>()
@@ -113,27 +87,10 @@ object TransactionBuilder {
         for (utxo in sorted) {
             selected.add(utxo)
             total += utxo.value
-            var outputCount = 2
-            var fee = estimateFee(selected.size, outputCount, feePerByte)
-            var change = total - target - fee
-            if (change <= DUST) {
-                outputCount = 1
-                fee = estimateFee(selected.size, outputCount, feePerByte)
-            }
-            if (total >= target + fee) break
+            if (total >= target + fixedFee) break
         }
-        var outputCount = 2
-        var finalFee = estimateFee(selected.size, outputCount, feePerByte)
-        if (total - target - finalFee <= DUST) {
-            outputCount = 1
-            finalFee = estimateFee(selected.size, outputCount, feePerByte)
-        }
-        require(total >= target + finalFee) { "Saldo insuficiente para valor + taxa" }
+        require(total >= target + fixedFee) { "Saldo insuficiente para valor + taxa" }
         return selected
-    }
-
-    private fun estimateSize(inputCount: Int, outputCount: Int): Int {
-        return 10 + inputCount * 148 + outputCount * 34
     }
 
     private fun buildSignatureHash(tx: Transaction, inputIndex: Int, scriptCode: ByteArray): ByteArray {

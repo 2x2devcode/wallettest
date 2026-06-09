@@ -117,6 +117,10 @@ fun WalletApp(viewModel: WalletViewModel) {
                     onBack = {
                         showSend = false
                         viewModel.resetSendState()
+                    },
+                    onSendSuccess = {
+                        showSend = false
+                        selectedTab = 0
                     }
                 )
                 selectedTab == 0 -> OverviewScreen(
