@@ -1,3 +1,5 @@
+import com.android.build.gradle.internal.api.BaseVariantOutputImpl
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -77,4 +79,11 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+android.applicationVariants.configureEach {
+    outputs.configureEach {
+        val output = this as BaseVariantOutputImpl
+        output.outputFileName = "app-${buildType.name}-${versionName}.apk"
+    }
 }
