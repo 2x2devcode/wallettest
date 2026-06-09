@@ -67,10 +67,55 @@ class P2PClient(
         sendMessage("getdata", P2PMessage.buildGetDataPayload(items))
     }
 
-    fun sendTransaction(tx: Transaction) {
-        val items = listOf(InventoryItem(InventoryItem.MSG_TX, tx.getHash()))
-        sendMessage("inv", P2PMessage.buildInvPayload(items))
-        sendMessage("tx", tx.serialize())
+    fun sendTransaction(tx: Transaction): Boolean {
+        val txHash = tx.getHash()
+        val txBytes = tx.serialize()
+        sendMessage("inv", P2PMessage.buildInvPayload(listOf(InventoryItem(InventoryItem.MSG_TX, txHash))))
+
+        val deadline = System.currentTimeMillis() + 8_000
+        while (System.currentTimeMillis() < deadline) {
+            val msg = readMessageBlocking() ?: break
+            when (msg.command) {
+                "getdata" -> {
+                    val items = P2PMessage.parseInvPayload(msg.payload)
+                    if (items.any { it.type == InventoryItem.MSG_TX && it.hash == txHash }) {
+                        sendMessage("tx", txBytes)
+                        Log.d(TAG, "[$host] tx enviada após getdata")
+                        return true
+                    }
+                }
+                "ping" -> sendMessage("pong", msg.payload)
+                "inv", "headers", "addr" -> Unit
+            }
+        }
+
+        sendMessage("tx", txBytes)
+        Log.d(TAG, "[$host] tx enviada (unsolicited)")
+        return true
+    }
+
+    private fun readMessageBlocking(): P2PMessageData? {
+        val ins = input ?: return null
+        return runCatching {
+            val header = ByteArray(P2PMessage.HEADER_SIZE)
+            var read = 0
+            while (read < header.size) {
+                val r = ins.read(header, read, header.size - read)
+                if (r < 0) return null
+                read += r
+            }
+            val parsed = P2PMessage.parseHeader(header) ?: return null
+            val (command, size, _) = parsed
+            if (size > 32 * 1024 * 1024) return null
+            val payload = ByteArray(size)
+            read = 0
+            while (read < size) {
+                val r = ins.read(payload, read, size - read)
+                if (r < 0) return null
+                read += r
+            }
+            P2PMessageData(command, payload)
+        }.getOrNull()
     }
 
     suspend fun readMessage(): P2PMessageData? = withContext(Dispatchers.IO) {

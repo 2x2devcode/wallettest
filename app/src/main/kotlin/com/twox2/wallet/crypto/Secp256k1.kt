@@ -42,10 +42,28 @@ object Secp256k1 {
         val s = BigInteger(1, normalize32(privateKey))
         signer.init(true, ECPrivateKeyParameters(s, domain))
         val sig = signer.generateSignature(hash)
-        val r = normalize32(sig[0].toByteArray())
-        val sigS = normalize32(sig[1].toByteArray())
-        return r + sigS
+        var r = normalize32(sig[0].toByteArray())
+        var sigS = BigInteger(1, normalize32(sig[1].toByteArray()))
+        if (sigS > HALF_CURVE_ORDER) {
+            sigS = CURVE_ORDER - sigS
+        }
+        return r + normalize32(sigS.toByteArray())
     }
+
+    fun verify(publicKey: ByteArray, hash: ByteArray, compactSig: ByteArray): Boolean = runCatching {
+        val signer = ECDSASigner()
+        val q = domain.curve.decodePoint(publicKey)
+        signer.init(false, org.bouncycastle.crypto.params.ECPublicKeyParameters(q, domain))
+        val r = BigInteger(1, compactSig.copyOfRange(0, 32))
+        val s = BigInteger(1, compactSig.copyOfRange(32, 64))
+        signer.verifySignature(hash, r, s)
+    }.getOrDefault(false)
+
+    private val CURVE_ORDER = BigInteger(
+        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
+        16
+    )
+    private val HALF_CURVE_ORDER = CURVE_ORDER.shiftRight(1)
 
     fun normalize32(bytes: ByteArray): ByteArray {
         val result = ByteArray(32)

@@ -63,6 +63,9 @@ object TransactionBuilder {
             val scriptCode = byteArrayOf(0x76, 0xA9.toByte(), 0x14) + pubKeyHash + byteArrayOf(0x88.toByte(), 0xAC.toByte())
             val sighash = buildSignatureHash(tx, index, scriptCode)
             val signature = Secp256k1.sign(signingKey.privateKey, sighash)
+            require(Secp256k1.verify(signingKey.publicKey, sighash, signature)) {
+                "Assinatura inválida para input $index"
+            }
             val scriptSig = encodeScriptSig(signature, signingKey.publicKey)
             input.copy(scriptSig = scriptSig)
         }
@@ -92,16 +95,40 @@ object TransactionBuilder {
 
     private fun buildSignatureHash(tx: Transaction, inputIndex: Int, scriptCode: ByteArray): ByteArray {
         val serialized = tx.serialize(forSignature = true, inputIndex = inputIndex, scriptCode = scriptCode)
-        val withHashType = serialized + byteArrayOf(0x01)
+        // 2x2Coin/Bitcoin: SIGHASH_ALL (1) serializado como int32 LE após a transação
+        val withHashType = serialized + int32Le(SIGHASH_ALL)
         return Sha256.hashTwice(withHashType)
     }
 
-    private fun encodeScriptSig(signature: ByteArray, publicKey: ByteArray): ByteArray {
-        val derSig = encodeDerSignature(signature) + byteArrayOf(0x01)
+    private fun int32Le(value: Int): ByteArray = byteArrayOf(
+        (value and 0xFF).toByte(),
+        ((value shr 8) and 0xFF).toByte(),
+        ((value shr 16) and 0xFF).toByte(),
+        ((value shr 24) and 0xFF).toByte()
+    )
+
+    private fun encodeScriptPush(data: ByteArray): ByteArray {
         val out = BitcoinOutput()
-        out.writeVarBytes(derSig)
-        out.writeVarBytes(publicKey)
+        when {
+            data.size < 0x4C -> out.writeByte(data.size.toByte())
+            data.size <= 0xFF -> {
+                out.writeByte(0x4C)
+                out.writeByte(data.size.toByte())
+            }
+            else -> {
+                out.writeByte(0x4D)
+                out.writeUInt16(data.size)
+            }
+        }
+        out.writeBytes(data)
         return out.toByteArray()
+    }
+
+    private const val SIGHASH_ALL = 1
+
+    private fun encodeScriptSig(signature: ByteArray, publicKey: ByteArray): ByteArray {
+        val derSig = encodeDerSignature(signature) + byteArrayOf(SIGHASH_ALL.toByte())
+        return encodeScriptPush(derSig) + encodeScriptPush(publicKey)
     }
 
     private fun encodeDerSignature(compact: ByteArray): ByteArray {
