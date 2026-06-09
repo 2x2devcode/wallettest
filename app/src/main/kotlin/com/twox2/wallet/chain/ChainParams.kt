@@ -19,6 +19,16 @@ object ChainParams {
     const val WIF_VERSION: Byte = 0x80.toByte()
     const val CASHADDR_PREFIX = "2x2coin"
 
+    // Consensus (mainnet - chainparams.cpp)
+    const val LAST_POW_BLOCK = 110_000
+    const val PROTOCOL_V2_TIME = 1769817601L
+    const val PROTOCOL_V3_TIME = 1769817602L
+    const val TARGET_SPACING_V1 = 180L
+    const val TARGET_SPACING_V2 = 120L
+    const val FUTURE_DRIFT_V1 = 600L // 10 min
+    const val FUTURE_DRIFT_V2 = 15L
+    const val STAKE_TIMESTAMP_MASK = 0xFL
+
     val DNS_SEEDS = listOf(
         "seed.quimeralabs.org",
         "seed1.quimeralabs.org",
@@ -29,7 +39,6 @@ object ChainParams {
     )
 
     val FIXED_PEERS = listOf(
-        // IPv4
         "144.91.107.244",
         "144.91.108.135",
         "145.128.186.211",
@@ -57,7 +66,6 @@ object ChainParams {
         "85.209.89.98",
         "86.82.39.57",
         "91.239.42.121",
-        // IPv6
         "2804:14d:5c44:82e9:218e:791:793f:b1df",
         "2804:14d:5c9b:8495:2505:502c:d706:620d",
         "2804:14d:5c9b:8495:450c:917d:92bf:fd5f",

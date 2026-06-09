@@ -39,7 +39,7 @@ class BitcoinInput(private val data: ByteArray) {
         return when {
             first < 0xFD -> first.toLong()
             first == 0xFD -> readUInt32()
-            first == 0xFE -> readUInt32() // simplified for mobile
+            first == 0xFE -> readInt64() and 0xFFFFFFFFL
             else -> readInt64()
         }
     }

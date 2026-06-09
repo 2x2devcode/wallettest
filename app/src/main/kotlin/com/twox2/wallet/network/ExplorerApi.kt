@@ -11,12 +11,12 @@ object ExplorerApi {
     private const val TAG = "TwoX2Explorer"
     private const val BASE_URL = "https://newexplorer.2x2coin.com/api"
 
-    suspend fun getBlockCount(): Int? = getBlockCountWithRetry(1)
+    suspend fun getBlockCount(): Int? = getBlockCountWithRetry(3)
 
     suspend fun getBlockCountWithRetry(attempts: Int = 3): Int? = withContext(Dispatchers.IO) {
         repeat(attempts) { attempt ->
-            val value = fetchInt("$BASE_URL/getblockcount")
-            if (value != null) return@withContext value
+            val value = fetchText("$BASE_URL/getblockcount")?.trim()?.toIntOrNull()
+            if (value != null && value >= 0) return@withContext value
             if (attempt < attempts - 1) delay(2_000L * (attempt + 1))
         }
         Log.w(TAG, "Falha ao obter altura da rede via explorer")
@@ -27,9 +27,10 @@ object ExplorerApi {
         fetchText("$BASE_URL/getblockhash?index=$height")?.trim()
     }
 
-    private fun fetchInt(url: String): Int? = runCatching {
-        fetchText(url)?.trim()?.toInt()
-    }.getOrNull()
+    suspend fun verifyBlockHash(height: Int, hash: String): Boolean = withContext(Dispatchers.IO) {
+        val expected = getBlockHash(height) ?: return@withContext false
+        hash.equals(expected, ignoreCase = true)
+    }
 
     private fun fetchText(urlString: String): String? = runCatching {
         val connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
