@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.twox2.wallet.crypto.AddressEncoder
+import com.twox2.wallet.crypto.Bip32
 import com.twox2.wallet.crypto.Secp256k1
 import com.twox2.wallet.data.db.SavedAddressEntity
 import com.twox2.wallet.data.db.WalletDatabase
@@ -29,7 +30,11 @@ class WalletManager private constructor(context: Context) {
     fun hasWallet(): Boolean = prefs.contains(KEY_PRIVATE)
 
     fun createWallet(): WalletInfo {
-        val (privateKey, publicKey) = Secp256k1.generateKeyPair()
+        val seed = Bip32.generateSeed()
+        val extKey = Bip32.deriveReceiveKey(seed, 0)
+        val privateKey = extKey.privateKey
+        val publicKey = Secp256k1.publicKeyFromPrivate(privateKey)
+        saveHdWallet(seed, 1)
         saveKeys(privateKey, publicKey)
         return getWalletInfo(privateKey, publicKey)
     }
@@ -44,14 +49,23 @@ class WalletManager private constructor(context: Context) {
             payload
         }
         val publicKey = Secp256k1.publicKeyFromPrivate(privateKey)
+        clearHdWallet()
         saveKeys(privateKey, publicKey)
         return getWalletInfo(privateKey, publicKey)
     }
 
     fun loadWallet(): WalletInfo? {
         val privateKey = prefs.getString(KEY_PRIVATE, null)?.hexToBytes() ?: return null
-        val publicKey = prefs.getString(KEY_PUBLIC, null)?.hexToBytes()
-            ?: Secp256k1.publicKeyFromPrivate(privateKey)
+        val storedPublic = prefs.getString(KEY_PUBLIC, null)?.hexToBytes()
+        val publicKey = when {
+            storedPublic == null -> Secp256k1.publicKeyFromPrivate(privateKey)
+            storedPublic.size == 65 && storedPublic[0] == 0x04.toByte() -> {
+                val compressed = Secp256k1.publicKeyFromPrivate(privateKey)
+                saveKeys(privateKey, compressed)
+                compressed
+            }
+            else -> storedPublic
+        }
         return getWalletInfo(privateKey, publicKey)
     }
 
@@ -87,7 +101,7 @@ class WalletManager private constructor(context: Context) {
     }
 
     suspend fun createReceiveAddress(name: String): SavedAddressEntity {
-        val (privateKey, publicKey) = Secp256k1.generateKeyPair()
+        val (privateKey, publicKey) = deriveNextReceiveKey()
         val address = AddressEncoder.publicKeyToAddress(publicKey)
         val cashAddress = AddressEncoder.publicKeyToCashAddress(publicKey)
         val entity = SavedAddressEntity(
@@ -101,6 +115,26 @@ class WalletManager private constructor(context: Context) {
         )
         val id = db.savedAddressDao().insert(entity)
         return entity.copy(id = id)
+    }
+
+    suspend fun resolveSigningKey(scriptPubKeyHex: String): Pair<ByteArray, ByteArray>? {
+        val normalized = scriptPubKeyHex.lowercase()
+        val receiveAddresses = db.savedAddressDao().getByType("receive")
+        for (entity in receiveAddresses) {
+            val script = AddressEncoder.addressToScriptPubKey(entity.address).toHex().lowercase()
+            if (script == normalized) {
+                val privateKey = entity.privateKeyHex?.hexToBytes() ?: continue
+                val publicKey = entity.publicKeyHex?.hexToBytes()
+                    ?: Secp256k1.publicKeyFromPrivate(privateKey)
+                return privateKey to ensureCompressedPublicKey(publicKey, privateKey)
+            }
+        }
+        val wallet = loadWallet() ?: return null
+        val script = AddressEncoder.addressToScriptPubKey(wallet.address).toHex().lowercase()
+        if (script == normalized) {
+            return wallet.privateKey to wallet.publicKey
+        }
+        return null
     }
 
     suspend fun saveSendAddress(name: String, address: String) {
@@ -129,6 +163,32 @@ class WalletManager private constructor(context: Context) {
         db.savedAddressDao().delete(id)
     }
 
+    private fun deriveNextReceiveKey(): Pair<ByteArray, ByteArray> {
+        val seed = prefs.getString(KEY_HD_SEED, null)?.hexToBytes()
+        if (seed != null) {
+            val index = prefs.getInt(KEY_HD_COUNTER, 1)
+            val extKey = Bip32.deriveReceiveKey(seed, index)
+            prefs.edit().putInt(KEY_HD_COUNTER, index + 1).apply()
+            val privateKey = extKey.privateKey
+            return privateKey to Secp256k1.publicKeyFromPrivate(privateKey)
+        }
+        return Secp256k1.generateKeyPair()
+    }
+
+    private fun saveHdWallet(seed: ByteArray, nextCounter: Int) {
+        prefs.edit()
+            .putString(KEY_HD_SEED, seed.toHex())
+            .putInt(KEY_HD_COUNTER, nextCounter)
+            .apply()
+    }
+
+    private fun clearHdWallet() {
+        prefs.edit()
+            .remove(KEY_HD_SEED)
+            .remove(KEY_HD_COUNTER)
+            .apply()
+    }
+
     private fun saveKeys(privateKey: ByteArray, publicKey: ByteArray) {
         prefs.edit()
             .putString(KEY_PRIVATE, privateKey.toHex())
@@ -137,13 +197,22 @@ class WalletManager private constructor(context: Context) {
     }
 
     private fun getWalletInfo(privateKey: ByteArray, publicKey: ByteArray): WalletInfo {
+        val compressedPublicKey = ensureCompressedPublicKey(publicKey, privateKey)
         return WalletInfo(
-            address = AddressEncoder.publicKeyToAddress(publicKey),
-            cashAddress = AddressEncoder.publicKeyToCashAddress(publicKey),
+            address = AddressEncoder.publicKeyToAddress(compressedPublicKey),
+            cashAddress = AddressEncoder.publicKeyToCashAddress(compressedPublicKey),
             wif = AddressEncoder.privateKeyToWif(privateKey),
-            publicKey = publicKey,
+            publicKey = compressedPublicKey,
             privateKey = privateKey
         )
+    }
+
+    private fun ensureCompressedPublicKey(publicKey: ByteArray, privateKey: ByteArray): ByteArray {
+        return if (publicKey.size == 33 && (publicKey[0] == 0x02.toByte() || publicKey[0] == 0x03.toByte())) {
+            publicKey
+        } else {
+            Secp256k1.publicKeyFromPrivate(privateKey)
+        }
     }
 
     fun getDatabase() = db
@@ -151,6 +220,8 @@ class WalletManager private constructor(context: Context) {
     companion object {
         private const val KEY_PRIVATE = "private_key"
         private const val KEY_PUBLIC = "public_key"
+        private const val KEY_HD_SEED = "hd_seed"
+        private const val KEY_HD_COUNTER = "hd_counter"
 
         @Volatile
         private var instance: WalletManager? = null

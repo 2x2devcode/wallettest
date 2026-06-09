@@ -12,7 +12,7 @@ import java.security.SecureRandom
 
 object Secp256k1 {
     private val curveParams = SECNamedCurves.getByName("secp256k1")
-    private val domain = ECDomainParameters(
+    val domain = ECDomainParameters(
         curveParams.curve,
         curveParams.g,
         curveParams.n,
@@ -32,8 +32,9 @@ object Secp256k1 {
         val s = BigInteger(1, normalize32(privateKey))
         val q: ECPoint = domain.g.multiply(s).normalize()
         val x = normalize32(q.affineXCoord.toBigInteger().toByteArray())
-        val y = normalize32(q.affineYCoord.toBigInteger().toByteArray())
-        return byteArrayOf(0x04) + x + y
+        val y = q.affineYCoord.toBigInteger()
+        val prefix = if (y.testBit(0)) 0x03 else 0x02
+        return byteArrayOf(prefix.toByte()) + x
     }
 
     fun sign(privateKey: ByteArray, hash: ByteArray): ByteArray {
