@@ -126,25 +126,23 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun observeSyncForPeriodicVerification() {
-        viewModelScope.launch {
-            syncProgress.collect { progress ->
-                if (progress.isSynced && verificationJob?.isActive != true) {
-                    startPeriodicVerification()
-                }
-            }
-        }
+        if (verificationJob?.isActive == true) return
+        startPeriodicVerification()
     }
 
     private fun startPeriodicVerification() {
         verificationJob?.cancel()
         verificationJob = viewModelScope.launch {
-            while (isActive && _hasWallet.value && syncProgress.value.isSynced) {
-                delay(30_000)
-                if (!_hasWallet.value || !syncProgress.value.isSynced) break
+            while (isActive && _hasWallet.value) {
                 runCatching {
                     repository.verifySync()
                     repository.syncWalletFromExplorer()
                 }
+                if (!syncProgress.value.isSynced) {
+                    delay(10_000)
+                    continue
+                }
+                delay(15_000)
             }
         }
     }

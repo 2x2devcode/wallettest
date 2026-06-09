@@ -11,17 +11,23 @@ import com.twox2.wallet.wallet.WalletManager
 object ExplorerWalletSync {
     private const val TAG = "TwoX2ExplorerWallet"
     private const val TX_PAGE_SIZE = 50
-    private const val MAX_TX_PAGES = 20
+    private const val MAX_TX_PAGES = 40
 
     suspend fun sync(context: Context) {
         val walletManager = WalletManager.get(context)
+        if (!walletManager.hasWallet()) return
+
         val db = walletManager.getDatabase()
         val utxoDao = db.utxoDao()
         val txDao = db.walletTransactionDao()
 
         val addresses = walletManager.getAllReceiveLegacyAddresses()
-        if (addresses.isEmpty()) return
+        if (addresses.isEmpty()) {
+            Log.w(TAG, "Nenhum endereço de depósito legado encontrado")
+            return
+        }
 
+        Log.d(TAG, "Sincronizando endereços: ${addresses.joinToString()}")
         val addressSet = addresses.toSet()
         var importedUtxos = 0
         var importedTxs = 0
@@ -33,7 +39,7 @@ object ExplorerWalletSync {
                 if (page.isEmpty()) return@repeat
 
                 for (summary in page) {
-                    if (summary.received <= 0 || summary.txid.isBlank()) continue
+                    if (summary.txid.isBlank()) continue
                     val detail = ExplorerApi.getTx(summary.txid) ?: continue
                     val ourOutputs = detail.outputs.withIndex()
                         .filter { it.value.address in addressSet && it.value.amount > 0 }
@@ -42,7 +48,6 @@ object ExplorerWalletSync {
 
                     if (!txDao.exists(summary.txid)) {
                         val totalReceived = ourOutputs.sumOf { it.value.amount }
-                        val primaryAddress = ourOutputs.first().value.address
                         txDao.insert(
                             WalletTransactionEntity(
                                 txHash = summary.txid,
@@ -51,7 +56,7 @@ object ExplorerWalletSync {
                                 amount = totalReceived,
                                 fee = 0,
                                 type = "received",
-                                address = primaryAddress,
+                                address = ourOutputs.first().value.address,
                                 confirmations = 0
                             )
                         )
@@ -59,20 +64,20 @@ object ExplorerWalletSync {
                     }
 
                     for ((index, output) in ourOutputs) {
-                        val scriptHex = AddressEncoder.addressToScriptPubKey(output.address).toHex()
-                        if (utxoDao.findByOutpoint(summary.txid, index) == null) {
-                            utxoDao.insert(
-                                UtxoEntity(
-                                    txHash = summary.txid,
-                                    outputIndex = index,
-                                    value = output.amount,
-                                    scriptPubKey = scriptHex,
-                                    blockHeight = detail.blockHeight,
-                                    spent = false
-                                )
+                        if (utxoDao.findByOutpoint(summary.txid, index) != null) continue
+                        utxoDao.insert(
+                            UtxoEntity(
+                                txHash = summary.txid,
+                                outputIndex = index,
+                                value = output.amount,
+                                scriptPubKey = AddressEncoder
+                                    .addressToScriptPubKey(output.address)
+                                    .toHex(),
+                                blockHeight = detail.blockHeight,
+                                spent = false
                             )
-                            importedUtxos++
-                        }
+                        )
+                        importedUtxos++
                     }
                 }
 
@@ -81,8 +86,19 @@ object ExplorerWalletSync {
             }
         }
 
+        val localBalance = utxoDao.getUnspent().sumOf { it.value }
+        val explorerBalance = addresses.sumOf { ExplorerApi.getAddressBalance(it) ?: 0L }
         if (importedUtxos > 0 || importedTxs > 0) {
-            Log.i(TAG, "Explorer sync: +$importedUtxos UTXOs, +$importedTxs transações")
+            Log.i(
+                TAG,
+                "Importados: $importedUtxos UTXOs, $importedTxs txs | " +
+                    "saldo local=$localBalance explorer=$explorerBalance"
+            )
+        } else if (explorerBalance > localBalance) {
+            Log.w(
+                TAG,
+                "Saldo explorer ($explorerBalance) > local ($localBalance) — verifique endereços"
+            )
         }
     }
 }

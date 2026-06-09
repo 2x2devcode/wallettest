@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,11 +63,22 @@ fun OverviewScreen(
     val transactions by viewModel.transactions.collectAsState()
     val syncProgress by viewModel.syncProgress.collectAsState()
     val blockCount by viewModel.blockCount.collectAsState()
-    val blockHeight = syncProgress.height.takeIf { it > 0 } ?: blockCount
+    val explorerBlockCount by viewModel.explorerBlockCount.collectAsState()
+    val localHeight = syncProgress.height.takeIf { it > 0 } ?: blockCount
+    val blockHeight = listOf(
+        localHeight,
+        syncProgress.networkHeight,
+        explorerBlockCount ?: 0
+    ).max()
 
     LaunchedEffect(Unit) {
-        viewModel.refreshUsdPrice()
-        viewModel.refreshWalletBalance()
+        while (true) {
+            viewModel.refreshUsdPrice()
+            viewModel.refreshWalletBalance()
+            viewModel.refreshExplorerBlockCount()
+            viewModel.startAutoSync()
+            delay(15_000)
+        }
     }
 
     Column(

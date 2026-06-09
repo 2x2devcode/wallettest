@@ -74,7 +74,7 @@ class BlockchainSyncManager(context: Context) {
     }
 
     suspend fun verifySync() = withContext(Dispatchers.IO) {
-        syncNewHeadersIfNeeded()
+        followUpTick()
     }
 
     private fun startFollowUpSync() {
@@ -91,9 +91,27 @@ class BlockchainSyncManager(context: Context) {
     }
 
     private suspend fun followUpTick() {
+        ExplorerWalletSync.sync(appContext)
         syncNewHeadersIfNeeded()
         scanWalletBlocksIfNeeded()
-        ExplorerWalletSync.sync(appContext)
+        refreshNetworkHeight()
+    }
+
+    private suspend fun refreshNetworkHeight() {
+        val networkTip = ExplorerApi.getBlockCountWithRetry() ?: return
+        val localTip = blockDao.getTip() ?: return
+        if (localTip.height >= networkTip && isSyncedWithMainnet(localTip, networkTip)) {
+            synced = true
+            updateProgress(100, isSyncing = false, height = localTip.height)
+            return
+        }
+        if (localTip.height < networkTip) {
+            _syncProgress.value = _syncProgress.value.copy(
+                height = localTip.height,
+                blockCount = localTip.height,
+                networkHeight = networkTip
+            )
+        }
     }
 
     private suspend fun syncNewHeadersIfNeeded() {
@@ -601,7 +619,8 @@ class BlockchainSyncManager(context: Context) {
             isSynced = synced,
             peer = peerHost,
             connectedPeers = peersList,
-            blockCount = blockHeight
+            blockCount = blockHeight,
+            networkHeight = maxOf(_syncProgress.value.networkHeight, blockHeight)
         )
         syncDao.insert(
             SyncStateEntity(
@@ -638,7 +657,8 @@ data class SyncProgress(
     val isSynced: Boolean = false,
     val peer: String? = null,
     val connectedPeers: List<String> = emptyList(),
-    val blockCount: Int = 0
+    val blockCount: Int = 0,
+    val networkHeight: Int = 0
 )
 
 private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
