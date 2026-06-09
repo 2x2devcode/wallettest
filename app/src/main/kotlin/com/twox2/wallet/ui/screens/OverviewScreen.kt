@@ -66,6 +66,7 @@ fun OverviewScreen(
 
     LaunchedEffect(Unit) {
         viewModel.refreshUsdPrice()
+        viewModel.refreshWalletBalance()
     }
 
     Column(

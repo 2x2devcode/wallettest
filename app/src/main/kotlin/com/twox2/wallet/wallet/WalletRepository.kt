@@ -10,6 +10,7 @@ import com.twox2.wallet.network.MarketDataApi
 import com.twox2.wallet.network.P2PClient
 import com.twox2.wallet.network.PeerDiscovery
 import com.twox2.wallet.sync.BlockchainSyncService
+import com.twox2.wallet.sync.ExplorerWalletSync
 import com.twox2.wallet.sync.SyncEngine
 import com.twox2.wallet.ui.FeeTier
 import kotlinx.coroutines.Dispatchers
@@ -38,7 +39,12 @@ class WalletRepository(context: Context) {
         walletManager.loadWallet()?.let { info ->
             walletManager.ensurePrimaryReceiveAddress(info)
             walletManager.migrateReceiveAddresses(info)
+            ExplorerWalletSync.sync(context)
         }
+    }
+
+    suspend fun syncWalletFromExplorer() = withContext(Dispatchers.IO) {
+        ExplorerWalletSync.sync(context)
     }
 
     suspend fun createWallet(): WalletInfo = withContext(Dispatchers.IO) {

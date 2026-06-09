@@ -24,6 +24,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -80,12 +81,19 @@ class BlockchainSyncManager(context: Context) {
         if (followUpJob?.isActive == true) return
         followUpJob = blockSyncScope.launch {
             while (isActive) {
+                if (!running) {
+                    runCatching { followUpTick() }
+                        .onFailure { Log.w(TAG, "Follow-up sync falhou", it) }
+                }
                 delay(FOLLOW_UP_INTERVAL_MS)
-                if (running) continue
-                runCatching { syncNewHeadersIfNeeded() }
-                    .onFailure { Log.w(TAG, "Follow-up sync falhou", it) }
             }
         }
+    }
+
+    private suspend fun followUpTick() {
+        syncNewHeadersIfNeeded()
+        scanWalletBlocksIfNeeded()
+        ExplorerWalletSync.sync(appContext)
     }
 
     private suspend fun syncNewHeadersIfNeeded() {
@@ -94,6 +102,13 @@ class BlockchainSyncManager(context: Context) {
         pruneAbove(networkTip)
 
         val localTip = blockDao.getTip() ?: return
+        if (localTip.height < networkTip) {
+            if (!repairChainToExplorer(networkTip)) return
+            Log.i(TAG, "Novos blocos detectados: local=${localTip.height}, rede=$networkTip")
+            executeSyncLoop()
+            return
+        }
+
         if (isSyncedWithMainnet(localTip, networkTip)) {
             synced = true
             updateProgress(100, isSyncing = false, height = localTip.height)
@@ -101,8 +116,18 @@ class BlockchainSyncManager(context: Context) {
         }
 
         if (!repairChainToExplorer(networkTip)) return
-        Log.i(TAG, "Novos blocos detectados: local=${localTip.height}, rede=$networkTip")
+        Log.i(TAG, "Reparando cadeia: local=${localTip.height}, rede=$networkTip")
         executeSyncLoop()
+    }
+
+    private suspend fun scanWalletBlocksIfNeeded() {
+        val networkTip = ExplorerApi.getBlockCountWithRetry() ?: return
+        val maxHeight = minOf(blockDao.getTip()?.height ?: 0, networkTip)
+        if (maxHeight <= 0) return
+        val lastScanned = syncPrefs.getInt(KEY_LAST_SCANNED_HEIGHT, 0)
+        if (lastScanned < maxHeight) {
+            startBlockDownloadIfNeeded(networkTip)
+        }
     }
 
     private suspend fun executeSyncLoop() {
@@ -238,6 +263,14 @@ class BlockchainSyncManager(context: Context) {
             blockDownloadRunning = true
             try {
                 downloadBlocks(networkTip)
+                val refreshedTip = ExplorerApi.getBlockCount() ?: networkTip
+                if (syncPrefs.getInt(KEY_LAST_SCANNED_HEIGHT, 0) < minOf(
+                        blockDao.getTip()?.height ?: 0,
+                        refreshedTip
+                    )
+                ) {
+                    downloadBlocks(refreshedTip)
+                }
             } finally {
                 blockDownloadRunning = false
             }
@@ -461,7 +494,9 @@ class BlockchainSyncManager(context: Context) {
     }
 
     private suspend fun downloadBlocks(networkTip: Int) {
-        val watchScripts = walletManager.getAllReceiveScriptPubKeys().toSet()
+        val watchScripts = walletManager.getAllReceiveScriptPubKeys()
+            .map { it.lowercase() }
+            .toSet()
         if (watchScripts.isEmpty()) return
 
         val maxHeight = minOf(blockDao.getTip()?.height ?: 0, networkTip)
@@ -480,12 +515,12 @@ class BlockchainSyncManager(context: Context) {
 
         try {
             var current = startHeight
-            while (current <= maxHeight && running) {
+            while (current <= maxHeight && currentCoroutineContext().isActive) {
                 val header = blockDao.getByHeight(current) ?: break
                 client.requestBlocks(listOf(UInt256.fromHex(header.hash)))
 
                 val deadline = System.currentTimeMillis() + 20_000
-                while (running && System.currentTimeMillis() < deadline) {
+                while (currentCoroutineContext().isActive && System.currentTimeMillis() < deadline) {
                     val msg = client.readMessage() ?: break
                     when (msg.command) {
                         "block" -> {
@@ -518,7 +553,7 @@ class BlockchainSyncManager(context: Context) {
             if (tx.isCoinBase()) return@forEach
             val txHash = tx.getHash().toHex()
             tx.outputs.forEachIndexed { index, output ->
-                val scriptHex = output.scriptPubKey.toHex()
+                val scriptHex = output.scriptPubKey.toHex().lowercase()
                 if (scriptHex in watchScripts) {
                     utxoDao.insert(
                         UtxoEntity(
@@ -591,7 +626,7 @@ class BlockchainSyncManager(context: Context) {
 
     companion object {
         private const val TAG = "TwoX2Sync"
-        private const val FOLLOW_UP_INTERVAL_MS = 30_000L
+        private const val FOLLOW_UP_INTERVAL_MS = 15_000L
         private const val KEY_LAST_SCANNED_HEIGHT = "last_scanned_block_height"
     }
 }
