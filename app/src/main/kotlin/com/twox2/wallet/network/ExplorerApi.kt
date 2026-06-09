@@ -110,6 +110,30 @@ object ExplorerApi {
         fetchText("$BASE_URL/getblockhash?index=$height")?.trim()
     }
 
+    suspend fun getBlockAtHeight(height: Int): ExplorerBlock? = withContext(Dispatchers.IO) {
+        val hash = getBlockHash(height) ?: return@withContext null
+        getBlock(hash)
+    }
+
+    suspend fun getBlock(hash: String): ExplorerBlock? = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = fetchText("$BASE_URL/getblock?hash=$hash") ?: return@withContext null
+            val json = JSONObject(body)
+            ExplorerBlock(
+                hash = json.getString("hash"),
+                height = json.getInt("height"),
+                previousBlockHash = json.optString("previousblockhash", ""),
+                merkleRoot = json.getString("merkleroot"),
+                time = json.getLong("time"),
+                bitsHex = json.getString("bits"),
+                nonce = json.getLong("nonce"),
+                version = json.getInt("version")
+            )
+        }.onFailure {
+            Log.w(TAG, "Falha ao obter bloco $hash", it)
+        }.getOrNull()
+    }
+
     suspend fun verifyBlockHash(height: Int, hash: String): Boolean = withContext(Dispatchers.IO) {
         val expected = getBlockHash(height) ?: return@withContext false
         hash.equals(expected, ignoreCase = true)
@@ -150,4 +174,15 @@ data class ExplorerTxDetail(
 data class ExplorerTxOutput(
     val address: String,
     val amount: Long
+)
+
+data class ExplorerBlock(
+    val hash: String,
+    val height: Int,
+    val previousBlockHash: String,
+    val merkleRoot: String,
+    val time: Long,
+    val bitsHex: String,
+    val nonce: Long,
+    val version: Int
 )

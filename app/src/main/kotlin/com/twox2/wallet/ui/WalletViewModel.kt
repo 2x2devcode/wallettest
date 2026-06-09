@@ -177,10 +177,20 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 _sendState.value = SendState.Error("Endereço inválido")
                 return@launch
             }
-            val result = repository.sendCoins(toAddress, amountValue, feeTier)
+            val result = runCatching {
+                repository.sendCoins(toAddress.trim(), amountValue, feeTier)
+            }.getOrElse { Result.failure(it) }
             _sendState.value = result.fold(
                 onSuccess = { SendState.Success(it) },
-                onFailure = { SendState.Error(it.message ?: "Erro ao enviar") }
+                onFailure = {
+                    SendState.Error(
+                        when {
+                            it.message?.contains("Timeout", ignoreCase = true) == true ->
+                                "Tempo esgotado ao enviar. Tente novamente."
+                            else -> it.message ?: "Erro ao enviar"
+                        }
+                    )
+                }
             )
         }
     }

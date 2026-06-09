@@ -27,9 +27,9 @@ class P2PClient(
     suspend fun connect(startHeight: Int = 0): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val s = Socket()
-            s.soTimeout = 0
             s.tcpNoDelay = true
-            s.connect(InetSocketAddress(host, port))
+            s.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            s.soTimeout = READ_TIMEOUT_MS
             socket = s
             input = BufferedInputStream(s.getInputStream())
             output = BufferedOutputStream(s.getOutputStream())
@@ -101,7 +101,8 @@ class P2PClient(
     suspend fun handshake(): Boolean {
         var sentVerack = false
         var gotVerack = false
-        while (true) {
+        val deadline = System.currentTimeMillis() + HANDSHAKE_TIMEOUT_MS
+        while (System.currentTimeMillis() < deadline) {
             val msg = readMessage() ?: return false
             Log.d(TAG, "[$host] recebeu: ${msg.command}")
             when (msg.command) {
@@ -121,6 +122,7 @@ class P2PClient(
                 return true
             }
         }
+        return false
     }
 
     private fun buildEmptyHeadersPayload(): ByteArray {
@@ -129,6 +131,9 @@ class P2PClient(
 
     companion object {
         private const val TAG = "TwoX2P2P"
+        private const val CONNECT_TIMEOUT_MS = 8_000
+        private const val READ_TIMEOUT_MS = 15_000
+        private const val HANDSHAKE_TIMEOUT_MS = 12_000
     }
 }
 

@@ -225,7 +225,8 @@ fun SendScreen(viewModel: WalletViewModel, onBack: () -> Unit = {}) {
             icon = Icons.AutoMirrored.Filled.Send,
             gradient = Brush.horizontalGradient(listOf(TealPrimary, Color(0xFF22C55E))),
             onClick = { viewModel.send(address, amount, selectedFee) },
-            modifier = Modifier.padding(horizontal = 16.dp)
+            modifier = Modifier.padding(horizontal = 16.dp),
+            enabled = sendState !is SendState.Loading
         )
 
         when (val state = sendState) {

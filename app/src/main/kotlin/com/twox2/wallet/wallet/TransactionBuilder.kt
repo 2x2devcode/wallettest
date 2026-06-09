@@ -28,7 +28,7 @@ object TransactionBuilder {
         require(AddressEncoder.isValidAddress(toAddress)) { "Endereço de destino inválido" }
         require(amount > DUST) { "Valor abaixo do mínimo" }
 
-        val selected = selectUtxos(utxos, amount)
+        val selected = selectUtxos(utxos, amount, feePerByte)
         val totalInput = selected.sumOf { it.value }
         val estimatedSize = 10 + selected.size * 148 + 2 * 34
         val fee = estimatedSize * feePerByte
@@ -70,16 +70,23 @@ object TransactionBuilder {
         return tx.copy(inputs = signedInputs)
     }
 
-    private fun selectUtxos(utxos: List<UtxoEntity>, target: Long): List<UtxoEntity> {
+    private fun selectUtxos(
+        utxos: List<UtxoEntity>,
+        target: Long,
+        feePerByte: Long
+    ): List<UtxoEntity> {
         val sorted = utxos.sortedByDescending { it.value }
         val selected = mutableListOf<UtxoEntity>()
         var total = 0L
         for (utxo in sorted) {
             selected.add(utxo)
             total += utxo.value
-            if (total >= target + 1000) break
+            val estimatedSize = 10 + selected.size * 148 + 2 * 34
+            val fee = estimatedSize * feePerByte
+            if (total >= target + fee) break
         }
-        require(total >= target) { "UTXOs insuficientes" }
+        val finalFee = (10 + selected.size * 148 + 2 * 34) * feePerByte
+        require(total >= target + finalFee) { "Saldo insuficiente para valor + taxa" }
         return selected
     }
 
