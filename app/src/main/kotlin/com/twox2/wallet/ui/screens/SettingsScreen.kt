@@ -1,17 +1,34 @@
 package com.twox2.wallet.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,10 +36,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.twox2.wallet.ui.WalletViewModel
 import com.twox2.wallet.ui.components.PageHeader
+import com.twox2.wallet.ui.theme.BackgroundDark
 import com.twox2.wallet.ui.theme.TealPrimary
 
 @Composable
@@ -34,6 +53,23 @@ fun SettingsScreen(viewModel: WalletViewModel) {
     val blockCount by viewModel.blockCount.collectAsState()
     val explorerBlockCount by viewModel.explorerBlockCount.collectAsState()
     val explorerLoading by viewModel.explorerLoading.collectAsState()
+    val context = LocalContext.current
+    val wif = wallet?.wif
+
+    val saveLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null && wif != null) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { stream ->
+                    stream.write(buildBackupFileContent(wif).toByteArray(Charsets.UTF_8))
+                }
+                viewModel.showMessage("Backup salvo")
+            }.onFailure {
+                viewModel.showMessage("Falha ao salvar backup")
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.refreshExplorerBlockCount()
@@ -65,9 +101,9 @@ fun SettingsScreen(viewModel: WalletViewModel) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("Aplicativo", style = MaterialTheme.typography.titleSmall)
                 Spacer(modifier = Modifier.height(8.dp))
-                androidx.compose.foundation.layout.Row(
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text("Tema escuro")
                     Switch(checked = darkTheme, onCheckedChange = viewModel::setDarkTheme)
@@ -130,10 +166,45 @@ fun SettingsScreen(viewModel: WalletViewModel) {
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    wallet?.wif ?: "—",
+                    wif ?: "—",
                     fontFamily = FontFamily.Monospace,
                     style = MaterialTheme.typography.bodySmall
                 )
+                if (wif != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                copyToClipboard(context, wif)
+                                viewModel.showMessage("Chave copiada")
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, TealPrimary),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TealPrimary)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Copiar", modifier = Modifier.padding(start = 6.dp))
+                        }
+                        Button(
+                            onClick = {
+                                saveLauncher.launch("2x2-wallet-backup.txt")
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = TealPrimary,
+                                contentColor = BackgroundDark
+                            )
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("Salvar", modifier = Modifier.padding(start = 6.dp))
+                        }
+                    }
+                }
             }
         }
 
@@ -152,4 +223,19 @@ fun SettingsScreen(viewModel: WalletViewModel) {
             }
         }
     }
+}
+
+private fun buildBackupFileContent(wif: String): String = """
+    2X2 Wallet - Backup da Carteira
+    ================================
+
+    Chave WIF (guarde em local seguro):
+    $wif
+
+    Não compartilhe esta chave com ninguém.
+""".trimIndent()
+
+private fun copyToClipboard(context: Context, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("wif", text))
 }

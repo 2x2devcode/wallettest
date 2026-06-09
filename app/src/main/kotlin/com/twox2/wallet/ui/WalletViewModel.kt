@@ -51,6 +51,12 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     private val _explorerLoading = MutableStateFlow(false)
     val explorerLoading: StateFlow<Boolean> = _explorerLoading.asStateFlow()
 
+    private val _usdPrice = MutableStateFlow<Double?>(null)
+    val usdPrice: StateFlow<Double?> = _usdPrice.asStateFlow()
+
+    private val _usdPriceLoading = MutableStateFlow(false)
+    val usdPriceLoading: StateFlow<Boolean> = _usdPriceLoading.asStateFlow()
+
     val balance = repository.balance
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
@@ -224,6 +230,14 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun refreshUsdPrice() {
+        viewModelScope.launch {
+            _usdPriceLoading.value = true
+            _usdPrice.value = repository.fetchUsdPrice()
+            _usdPriceLoading.value = false
+        }
+    }
+
     fun resetSendState() {
         _sendState.value = SendState.Idle
     }
@@ -257,8 +271,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun formatUsdEstimate(satoshis: Long): String {
+        val price = _usdPrice.value ?: return "≈ — USD"
         val coins = satoshis.toDouble() / ChainParams.COIN
-        val usd = coins * 0.10
+        val usd = coins * price
         return "≈ $%.2f USD".format(usd)
     }
 
