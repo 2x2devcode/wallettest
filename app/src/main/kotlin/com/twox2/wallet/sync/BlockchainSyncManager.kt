@@ -121,8 +121,27 @@ class BlockchainSyncManager(context: Context) {
 
         val localTip = blockDao.getTip() ?: return
         if (localTip.height < networkTip) {
+            val inserted = ExplorerHeaderSync.syncToHeight(blockDao, networkTip)
+            val updatedTip = blockDao.getTip()
+            if (inserted > 0 && updatedTip != null) {
+                updateProgress(
+                    progress = minOf(100, (updatedTip.height * 100) / networkTip.coerceAtLeast(1)),
+                    isSyncing = inserted < (networkTip - localTip.height),
+                    height = updatedTip.height
+                )
+                if (updatedTip.height >= networkTip &&
+                    isSyncedWithMainnet(updatedTip, networkTip)
+                ) {
+                    completeHeaderSync(updatedTip, networkTip)
+                    return
+                }
+                if (updatedTip.height >= networkTip) {
+                    completeHeaderSync(updatedTip, networkTip)
+                    return
+                }
+            }
             if (!repairChainToExplorer(networkTip)) return
-            Log.i(TAG, "Novos blocos detectados: local=${localTip.height}, rede=$networkTip")
+            Log.i(TAG, "Novos blocos via P2P: local=${localTip.height}, rede=$networkTip")
             executeSyncLoop()
             return
         }

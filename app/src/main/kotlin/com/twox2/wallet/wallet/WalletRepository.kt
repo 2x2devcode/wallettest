@@ -7,8 +7,7 @@ import com.twox2.wallet.data.db.SavedAddressEntity
 import com.twox2.wallet.data.db.WalletTransactionEntity
 import com.twox2.wallet.network.ExplorerApi
 import com.twox2.wallet.network.MarketDataApi
-import com.twox2.wallet.network.P2PClient
-import com.twox2.wallet.network.PeerDiscovery
+import com.twox2.wallet.network.TransactionBroadcaster
 import com.twox2.wallet.sync.BlockchainSyncService
 import com.twox2.wallet.sync.ExplorerWalletSync
 import com.twox2.wallet.sync.SyncEngine
@@ -16,6 +15,7 @@ import com.twox2.wallet.ui.FeeTier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 class WalletRepository(context: Context) {
     private val walletManager = WalletManager.get(context)
@@ -119,24 +119,16 @@ class WalletRepository(context: Context) {
             val tx = TransactionBuilder.buildAndSign(
                 utxos = spendableUtxos,
                 utxoKeys = utxoKeys,
-                toAddress = toAddress,
+                toAddress = toAddress.trim(),
                 amount = amount,
                 changeAddress = wallet.address,
                 feePerByte = feeTier.feePerByte
             )
 
-            val peers = PeerDiscovery.discoverPeers(3)
-            var broadcast = false
-            for (peer in peers) {
-                val client = P2PClient(peer)
-                if (client.connect() && client.handshake()) {
-                    client.sendTransaction(tx)
-                    broadcast = true
-                    client.disconnect()
-                    break
-                }
+            val broadcast = withTimeout(60_000) {
+                TransactionBroadcaster.broadcast(tx)
             }
-            require(broadcast) { "Falha ao transmitir transação" }
+            require(broadcast) { "Falha ao transmitir transação. Verifique sua conexão." }
 
             val txHash = tx.getHash().toHex()
             walletManager.getDatabase().walletTransactionDao().insert(
