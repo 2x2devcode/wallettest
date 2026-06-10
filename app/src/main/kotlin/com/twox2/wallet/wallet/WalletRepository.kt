@@ -11,12 +11,14 @@ import com.twox2.wallet.network.MarketDataApi
 import com.twox2.wallet.network.TransactionBroadcaster
 import com.twox2.wallet.sync.BlockchainSyncService
 import com.twox2.wallet.sync.ExplorerWalletSync
+import com.twox2.wallet.sync.SpendPreparer
 import com.twox2.wallet.sync.SyncEngine
 import com.twox2.wallet.ui.FeeTier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import com.twox2.wallet.data.db.UtxoEntity
 
 class WalletRepository(context: Context) {
     private val walletManager = WalletManager.get(context)
@@ -123,12 +125,15 @@ class WalletRepository(context: Context) {
             require(amountCoins <= MAX_SEND_COINS) { "Envio máximo: $MAX_SEND_COINS ${ChainParams.CURRENCY}" }
             require(AddressEncoder.isValidAddress(toAddress)) { "Endereço inválido" }
 
-            ExplorerWalletSync.sync(context)
+            SpendPreparer.prepare(context)
 
             val wallet = walletManager.loadWallet() ?: error("Carteira não encontrada")
             val amount = (amountCoins * ChainParams.COIN).toLong()
             val fixedFee = feeTier.feeSatoshis
             val db = walletManager.getDatabase()
+            val addresses = walletManager.getAllReceiveLegacyAddresses()
+            val addressSet = addresses.toSet()
+
             val utxos = db.utxoDao().getUnspent()
             val utxoKeys = mutableMapOf<Long, TransactionBuilder.SigningKey>()
             for (utxo in utxos) {
@@ -137,21 +142,30 @@ class WalletRepository(context: Context) {
                 utxoKeys[utxo.id] = TransactionBuilder.SigningKey(key.first, key.second)
             }
             require(utxoKeys.isNotEmpty()) { "Nenhuma chave disponível para assinar transação" }
-            val spendableUtxos = utxos.filter { utxoKeys.containsKey(it.id) }
+
+            var spendableUtxos = utxos.filter { utxoKeys.containsKey(it.id) }
             require(spendableUtxos.isNotEmpty()) { "Nenhum UTXO disponível para gastar" }
 
-            val explorerBalance = fetchExplorerBalance()
             val spendableTotal = spendableUtxos.sumOf { it.value }
             require(spendableTotal >= amount + fixedFee) {
                 "Saldo insuficiente (disponível: ${spendableTotal / ChainParams.COIN} ${ChainParams.CURRENCY})"
             }
-            if (explorerBalance > 0 && spendableTotal > explorerBalance) {
-                ExplorerWalletSync.sync(context)
+
+            val candidateUtxos = selectCandidateUtxos(spendableUtxos, amount, fixedFee)
+            val validatedUtxos = UtxoValidator.filterSpendable(candidateUtxos, addressSet)
+            require(validatedUtxos.isNotEmpty()) {
+                "UTXOs indisponíveis na rede (já gastos). Vá em Configurações → Reindexar blockchain."
+            }
+            val validatedTotal = validatedUtxos.sumOf { it.value }
+            require(validatedTotal >= amount + fixedFee) {
+                "Saldo confirmado insuficiente após validação na rede"
             }
 
-            val networkTime = ExplorerApi.getLatestBlockTime() ?: (System.currentTimeMillis() / 1000)
+            val networkTime = ExplorerApi.getNetworkTime()
+                ?: (System.currentTimeMillis() / 1000)
+
             val buildResult = TransactionBuilder.buildAndSign(
-                utxos = spendableUtxos,
+                utxos = validatedUtxos,
                 utxoKeys = utxoKeys,
                 toAddress = toAddress.trim(),
                 amount = amount,
@@ -161,14 +175,14 @@ class WalletRepository(context: Context) {
             )
             val tx = buildResult.transaction
 
-            val broadcast = withTimeout(90_000) {
-                TransactionBroadcaster.broadcast(tx)
+            val broadcast = withTimeout(35_000) {
+                TransactionBroadcaster.broadcast(tx, context)
             }
             when (broadcast) {
                 is TransactionBroadcaster.BroadcastResult.Rejected ->
                     error("Transação rejeitada pela rede: ${broadcast.reason}")
                 is TransactionBroadcaster.BroadcastResult.Failed ->
-                    error("Falha ao transmitir transação. Verifique sua conexão.")
+                    error("Falha ao transmitir. Verifique sua conexão e tente novamente.")
                 is TransactionBroadcaster.BroadcastResult.Success -> Unit
             }
 
@@ -198,5 +212,21 @@ class WalletRepository(context: Context) {
     companion object {
         const val MIN_SEND_COINS = 1.0
         const val MAX_SEND_COINS = 500_000.0
+
+        private fun selectCandidateUtxos(
+            utxos: List<UtxoEntity>,
+            amount: Long,
+            fee: Long
+        ): List<UtxoEntity> {
+            val sorted = utxos.sortedByDescending { it.value }
+            val selected = mutableListOf<UtxoEntity>()
+            var total = 0L
+            for (utxo in sorted) {
+                selected.add(utxo)
+                total += utxo.value
+                if (total >= amount + fee) break
+            }
+            return selected
+        }
     }
 }

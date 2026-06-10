@@ -1,6 +1,6 @@
 # 2x2 Wallet — Aplicativo Android Nativo
 
-**Versão do aplicativo: 1.6.4**
+**Versão do aplicativo: 1.6.5**
 
 Carteira cripto nativa para a rede **2x2Coin**, baseada no projeto [2x2Coin](https://github.com/coinsdevcode/2x2Coin). O aplicativo conecta-se diretamente à rede P2P da moeda, baixa cabeçalhos e blocos da blockchain, e oferece gestão completa de saldo, depósitos, transferências e saques.
 
@@ -82,7 +82,7 @@ O Gradle tenta localizar o SDK automaticamente via `ANDROID_HOME`, `ANDROID_SDK_
 
 Copie `local.properties.example` para `local.properties` apenas se precisar definir o caminho manualmente.
 
-O APK será gerado em `app/build/outputs/apk/debug/app-debug-1.6.4.apk`.
+O APK será gerado em `app/build/outputs/apk/debug/app-debug-1.6.5.apk`.
 
 ## Segurança
 

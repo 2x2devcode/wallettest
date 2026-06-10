@@ -79,35 +79,50 @@ object ExplorerApi {
     }
 
     suspend fun getTx(txid: String): ExplorerTxDetail? = withContext(Dispatchers.IO) {
-        runCatching {
-            val body = fetchText("$EXT_URL/gettx/$txid") ?: return@withContext null
-            val root = JSONObject(body)
-            val tx = root.optJSONObject("tx") ?: return@withContext null
-            val vouts = tx.optJSONArray("vout") ?: JSONArray()
-            val outputs = buildList {
-                for (i in 0 until vouts.length()) {
-                    val vout = vouts.getJSONObject(i)
-                    add(
-                        ExplorerTxOutput(
-                            address = vout.optString("addresses"),
-                            amount = vout.optLong("amount")
-                        )
-                    )
-                }
-            }
-            ExplorerTxDetail(
-                txid = tx.optString("txid", txid),
-                blockHeight = tx.optInt("blockindex", -1),
-                timestamp = tx.optLong("timestamp"),
-                fee = tx.optLong("fee"),
-                outputs = outputs
-            )
-        }.onFailure {
-            Log.w(TAG, "Falha ao obter tx $txid", it)
-        }.getOrNull()
+        fetchTxDetail(txid, fast = false)
+    }
+
+    suspend fun getTxFast(txid: String): ExplorerTxDetail? = withContext(Dispatchers.IO) {
+        fetchTxDetail(txid, fast = true)
     }
 
     suspend fun txExists(txid: String): Boolean = getTx(txid) != null
+
+    suspend fun txExistsFast(txid: String): Boolean = getTxFast(txid) != null
+
+    suspend fun getNetworkTime(): Long? = withContext(Dispatchers.IO) {
+        val blockTime = getLatestBlockTime() ?: return@withContext null
+        val now = System.currentTimeMillis() / 1000
+        val futureDrift = 15L
+        minOf(now, blockTime + futureDrift)
+    }
+
+    private fun fetchTxDetail(txid: String, fast: Boolean): ExplorerTxDetail? = runCatching {
+        val body = fetchText("$EXT_URL/gettx/$txid", fast = fast) ?: return@runCatching null
+        val root = JSONObject(body)
+        val tx = root.optJSONObject("tx") ?: return@runCatching null
+        val vouts = tx.optJSONArray("vout") ?: JSONArray()
+        val outputs = buildList {
+            for (i in 0 until vouts.length()) {
+                val vout = vouts.getJSONObject(i)
+                add(
+                    ExplorerTxOutput(
+                        address = vout.optString("addresses"),
+                        amount = vout.optLong("amount")
+                    )
+                )
+            }
+        }
+        ExplorerTxDetail(
+            txid = tx.optString("txid", txid),
+            blockHeight = tx.optInt("blockindex", -1),
+            timestamp = tx.optLong("timestamp"),
+            fee = tx.optLong("fee"),
+            outputs = outputs
+        )
+    }.onFailure {
+        if (!fast) Log.w(TAG, "Falha ao obter tx $txid", it)
+    }.getOrNull()
 
     suspend fun getLatestBlockTime(): Long? = withContext(Dispatchers.IO) {
         val height = getBlockCount() ?: return@withContext null
@@ -147,10 +162,11 @@ object ExplorerApi {
         hash.equals(expected, ignoreCase = true)
     }
 
-    private fun fetchText(urlString: String): String? = runCatching {
+    private fun fetchText(urlString: String, fast: Boolean = false): String? = runCatching {
+        val timeout = if (fast) 6_000 else 12_000
         val connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 12_000
-            readTimeout = 12_000
+            connectTimeout = timeout
+            readTimeout = timeout
             requestMethod = "GET"
             setRequestProperty("User-Agent", "2X2Wallet/1.0")
         }
