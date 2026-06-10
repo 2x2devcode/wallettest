@@ -10,9 +10,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CallReceived
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -22,12 +19,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.twox2.wallet.data.db.WalletTransactionEntity
-import com.twox2.wallet.ui.theme.GreenReceived
-import com.twox2.wallet.ui.theme.RedSent
+import com.twox2.wallet.ui.transactionDisplay
 import com.twox2.wallet.ui.theme.SurfaceDark
 import com.twox2.wallet.ui.theme.TextMuted
 import java.text.SimpleDateFormat
@@ -40,11 +35,8 @@ fun DashboardTransactionItem(
     formattedAmount: String,
     formattedFee: String? = null
 ) {
-    val isReceived = tx.amount >= 0
-    val accentColor = if (isReceived) GreenReceived else RedSent
-    val label = if (isReceived) "Received" else "Sent"
-    val icon = if (isReceived) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.Send
-    val amountText = (if (isReceived) "+" else "-") + formattedAmount.replace(" 2X2", " 2X2")
+    val display = transactionDisplay(tx)
+    val amountText = "${display.symbol}$formattedAmount"
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -55,7 +47,7 @@ fun DashboardTransactionItem(
             Box(
                 modifier = Modifier
                     .width(4.dp)
-                    .background(accentColor)
+                    .background(display.accentColor)
             )
             Row(
                 modifier = Modifier
@@ -67,13 +59,18 @@ fun DashboardTransactionItem(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(accentColor.copy(alpha = 0.2f)),
+                        .background(display.accentColor.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
+                    Icon(
+                        display.icon,
+                        contentDescription = null,
+                        tint = display.accentColor,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
                 Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                    Text(label, color = accentColor, fontWeight = FontWeight.SemiBold)
+                    Text(display.label, color = display.accentColor, fontWeight = FontWeight.SemiBold)
                     Text(
                         shortenAddress(tx.address.ifBlank { tx.txHash }),
                         style = MaterialTheme.typography.bodySmall,
@@ -81,14 +78,14 @@ fun DashboardTransactionItem(
                     )
                     if (formattedFee != null) {
                         Text(
-                            "Fee: $formattedFee",
+                            "Taxa: $formattedFee",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextMuted
                         )
                     }
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(amountText, color = accentColor, fontWeight = FontWeight.Bold)
+                    Text(amountText, color = display.accentColor, fontWeight = FontWeight.Bold)
                     Text(
                         formatDate(tx.timestamp),
                         style = MaterialTheme.typography.bodySmall,

@@ -13,6 +13,7 @@ import com.twox2.wallet.sync.SyncEngine
 import com.twox2.wallet.sync.SyncProgress
 import com.twox2.wallet.wallet.WalletInfo
 import com.twox2.wallet.wallet.WalletRepository
+import com.twox2.wallet.ui.CoinFormat
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,7 +27,7 @@ import kotlinx.coroutines.launch
 enum class FeeTier(val label: String, val feeSatoshis: Long) {
     STANDARD("Standard", 10_000L),
     FAST("Fast", 20_000L),
-    PRIORITY("Priority", 400_000L);
+    PRIORITY("Priority", 40_000L);
 
     fun formatFeeCoins(): String {
         val coins = feeSatoshis.toDouble() / ChainParams.COIN
@@ -193,6 +194,17 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
                 _sendState.value = SendState.Error("Endereço inválido")
                 return@launch
             }
+            val amountSat = CoinFormat.coinsToSatoshisTruncated(amountValue)
+            val totalRequired = amountSat + feeTier.feeSatoshis
+            if (totalRequired > _displayBalance.value) {
+                val totalCoins = CoinFormat.truncateSatoshisToCoins(totalRequired)
+                val balanceCoins = CoinFormat.truncateSatoshisToCoins(_displayBalance.value)
+                _sendState.value = SendState.Error(
+                    "Saldo insuficiente. Necessário $totalCoins ${ChainParams.CURRENCY} " +
+                        "(valor + taxa). Disponível: $balanceCoins ${ChainParams.CURRENCY}"
+                )
+                return@launch
+            }
             val result = runCatching {
                 repository.sendCoins(toAddress.trim(), amountValue, feeTier)
             }.getOrElse { Result.failure(it) }
@@ -335,30 +347,33 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun formatFee(feeSatoshis: Long): String {
-        val coins = feeSatoshis.toDouble() / ChainParams.COIN
-        return "%.6f %s".format(coins, ChainParams.CURRENCY)
+        return CoinFormat.formatWithCurrency(feeSatoshis)
     }
 
     fun formatBalance(satoshis: Long): String {
-        val coins = satoshis.toDouble() / ChainParams.COIN
-        return "%.8f %s".format(coins, ChainParams.CURRENCY)
+        return CoinFormat.formatWithCurrency(satoshis)
     }
 
     fun formatBalanceShort(satoshis: Long): String {
-        val coins = satoshis.toDouble() / ChainParams.COIN
-        val formatted = if (coins >= 1000) {
-            "%,.2f".format(coins)
-        } else {
-            "%.2f".format(coins)
-        }
-        return "$formatted ${ChainParams.CURRENCY}"
+        return CoinFormat.formatWithCurrency(satoshis)
+    }
+
+    fun formatAmount(satoshis: Long): String {
+        return CoinFormat.formatAmount(satoshis)
     }
 
     fun formatUsdEstimate(satoshis: Long): String {
         val price = _usdPrice.value ?: return "≈ — USD"
         val coins = satoshis.toDouble() / ChainParams.COIN
         val usd = coins * price
-        return "≈ $%.2f USD".format(usd)
+        val truncated = kotlin.math.floor(usd * 100) / 100
+        return "≈ $%.2f USD".format(truncated)
+    }
+
+    fun formatUsdPerCoin(): String {
+        val price = _usdPrice.value ?: return "1 2X2 ≈ — USD"
+        val truncated = kotlin.math.floor(price * 10000) / 10000
+        return "1 2X2 ≈ $%.4f USD".format(truncated)
     }
 
     fun pendingBalance(txs: List<WalletTransactionEntity>): Long {
