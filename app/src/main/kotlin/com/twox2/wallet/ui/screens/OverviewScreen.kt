@@ -89,6 +89,18 @@ fun OverviewScreen(
     ) {
         WalletHeader()
 
+        Text(
+            text = viewModel.formatUsdPerCoin(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = TealPrimary,
+            fontWeight = FontWeight.Medium
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
         SyncStatusText(syncProgress, isVerifying = false)
 
         BalanceCard(
@@ -157,7 +169,7 @@ fun OverviewScreen(
                 transactions.take(3).forEach { tx ->
                     DashboardTransactionItem(
                         tx = tx,
-                        formattedAmount = viewModel.formatBalanceShort(kotlin.math.abs(tx.amount)),
+                        formattedAmount = viewModel.formatAmount(kotlin.math.abs(tx.amount)),
                         formattedFee = if (tx.fee > 0) viewModel.formatFee(tx.fee) else null
                     )
                 }

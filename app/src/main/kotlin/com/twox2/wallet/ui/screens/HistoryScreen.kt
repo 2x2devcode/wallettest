@@ -91,7 +91,7 @@ fun HistoryScreen(viewModel: WalletViewModel) {
                 filtered.forEach { tx ->
                     TransactionListItem(
                         tx = tx,
-                        formattedAmount = viewModel.formatBalance(kotlin.math.abs(tx.amount)),
+                        formattedAmount = viewModel.formatAmount(kotlin.math.abs(tx.amount)),
                         formattedFee = if (tx.fee > 0) viewModel.formatFee(tx.fee) else null,
                         onClick = { selectedTx = tx }
                     )

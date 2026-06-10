@@ -49,6 +49,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.twox2.wallet.ui.CoinFormat
 import com.twox2.wallet.ui.AddressValidation
 import com.twox2.wallet.ui.FeeTier
 import com.twox2.wallet.ui.SendState
@@ -94,8 +95,10 @@ fun SendScreen(
 
     val addressValidation = viewModel.validateAddress(address)
     val amountValue = amount.replace(",", ".").toDoubleOrNull() ?: 0.0
-    val feeCoins = estimatedFeeSat.toDouble() / com.twox2.wallet.chain.ChainParams.COIN
-    val total = amountValue + feeCoins
+    val amountSat = if (amountValue > 0) CoinFormat.coinsToSatoshisTruncated(amountValue) else 0L
+    val totalRequiredSat = amountSat + estimatedFeeSat
+    val hasInsufficientBalance = amountSat > 0 && totalRequiredSat > balance
+    val totalCoinsDisplay = CoinFormat.truncateSatoshisToCoins(totalRequiredSat)
 
     Column(
         modifier = Modifier
@@ -186,10 +189,12 @@ fun SendScreen(
                             .clip(RoundedCornerShape(8.dp))
                             .border(1.dp, TealPrimary, RoundedCornerShape(8.dp))
                             .clickable {
-                                val maxCoins = balance.toDouble() / com.twox2.wallet.chain.ChainParams.COIN
-                                val feeReserve = estimatedFeeSat.toDouble() / com.twox2.wallet.chain.ChainParams.COIN
-                                val capped = minOf(maxCoins - feeReserve, WalletRepository.MAX_SEND_COINS)
-                                amount = "%.2f".format(maxOf(capped, 0.0))
+                                val maxSendSat = (balance - estimatedFeeSat).coerceAtLeast(0L)
+                                val maxCoins = CoinFormat.truncateSatoshisToCoins(maxSendSat).toDoubleOrNull() ?: 0.0
+                                val capped = minOf(maxCoins, WalletRepository.MAX_SEND_COINS)
+                                amount = CoinFormat.truncateSatoshisToCoins(
+                                    CoinFormat.coinsToSatoshisTruncated(capped)
+                                )
                             }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
@@ -234,10 +239,19 @@ fun SendScreen(
         Spacer(modifier = Modifier.height(20.dp))
 
         TransactionSummaryCard(
-            amount = if (amount.isBlank()) "—" else "${amountValue} 2X2",
+            amount = if (amount.isBlank()) "—" else "${CoinFormat.truncateSatoshisToCoins(amountSat)} 2X2",
             fee = viewModel.formatFee(estimatedFeeSat),
-            total = if (amount.isBlank()) "—" else "${"%.6f".format(total)} 2X2"
+            total = if (amount.isBlank()) "—" else "$totalCoinsDisplay 2X2"
         )
+
+        if (hasInsufficientBalance) {
+            Text(
+                "Saldo insuficiente para valor + taxa",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -247,7 +261,10 @@ fun SendScreen(
             gradient = Brush.horizontalGradient(listOf(TealPrimary, Color(0xFF22C55E))),
             onClick = { viewModel.send(address, amount, selectedFee) },
             modifier = Modifier.padding(horizontal = 16.dp),
-            enabled = sendState !is SendState.Loading
+            enabled = sendState !is SendState.Loading &&
+                !hasInsufficientBalance &&
+                addressValidation == AddressValidation.VALID &&
+                amountSat > 0
         )
 
         when (val state = sendState) {
