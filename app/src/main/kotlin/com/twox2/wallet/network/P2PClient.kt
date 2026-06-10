@@ -25,11 +25,19 @@ class P2PClient(
     val isConnected: Boolean get() = socket?.isConnected == true && socket?.isClosed == false
 
     suspend fun connect(startHeight: Int = 0): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
+        connectInternal(startHeight, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
+    }
+
+    suspend fun connectForBroadcast(): Boolean = withContext(Dispatchers.IO) {
+        connectInternal(0, BROADCAST_CONNECT_TIMEOUT_MS, BROADCAST_READ_TIMEOUT_MS)
+    }
+
+    private fun connectInternal(startHeight: Int, connectTimeout: Int, readTimeout: Int): Boolean {
+        return runCatching {
             val s = Socket()
             s.tcpNoDelay = true
-            s.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
-            s.soTimeout = READ_TIMEOUT_MS
+            s.connect(InetSocketAddress(host, port), connectTimeout)
+            s.soTimeout = readTimeout
             socket = s
             input = BufferedInputStream(s.getInputStream())
             output = BufferedOutputStream(s.getOutputStream())
@@ -73,13 +81,13 @@ class P2PClient(
         data object Failed : SendResult()
     }
 
-    fun sendTransaction(tx: Transaction): SendResult {
+    fun sendTransactionFast(tx: Transaction): SendResult {
         val txHash = tx.getHash()
         val txBytes = tx.serialize()
         sendMessage("inv", P2PMessage.buildInvPayload(listOf(InventoryItem(InventoryItem.MSG_TX, txHash))))
+        sendMessage("tx", txBytes)
 
-        var relayedViaGetData = false
-        val deadline = System.currentTimeMillis() + 10_000
+        val deadline = System.currentTimeMillis() + BROADCAST_SEND_WAIT_MS
         while (System.currentTimeMillis() < deadline) {
             val msg = readMessageBlocking() ?: break
             when (msg.command) {
@@ -87,8 +95,7 @@ class P2PClient(
                     val items = P2PMessage.parseInvPayload(msg.payload)
                     if (items.any { it.type == InventoryItem.MSG_TX && it.hash == txHash }) {
                         sendMessage("tx", txBytes)
-                        relayedViaGetData = true
-                        Log.d(TAG, "[$host] tx enviada após getdata")
+                        Log.d(TAG, "[$host] tx reenviada após getdata")
                     }
                 }
                 "reject" -> {
@@ -97,46 +104,14 @@ class P2PClient(
                     return SendResult.Rejected(reason)
                 }
                 "ping" -> sendMessage("pong", msg.payload)
-                "inv", "headers", "addr" -> Unit
-            }
-            if (relayedViaGetData) {
-                val ackDeadline = System.currentTimeMillis() + 3_000
-                while (System.currentTimeMillis() < ackDeadline) {
-                    val ack = readMessageBlocking() ?: break
-                    when (ack.command) {
-                        "reject" -> {
-                            val reason = parseRejectReason(ack.payload)
-                            Log.w(TAG, "[$host] tx rejeitada após relay: $reason")
-                            return SendResult.Rejected(reason)
-                        }
-                        "ping" -> sendMessage("pong", ack.payload)
-                        else -> Unit
-                    }
-                }
-                return SendResult.Relayed
+                else -> Unit
             }
         }
-
-        if (!relayedViaGetData) {
-            sendMessage("tx", txBytes)
-            Log.d(TAG, "[$host] tx enviada (unsolicited)")
-            val rejectDeadline = System.currentTimeMillis() + 3_000
-            while (System.currentTimeMillis() < rejectDeadline) {
-                val msg = readMessageBlocking() ?: break
-                when (msg.command) {
-                    "reject" -> {
-                        val reason = parseRejectReason(msg.payload)
-                        Log.w(TAG, "[$host] tx rejeitada (unsolicited): $reason")
-                        return SendResult.Rejected(reason)
-                    }
-                    "ping" -> sendMessage("pong", msg.payload)
-                    else -> Unit
-                }
-            }
-        }
-
-        return if (relayedViaGetData) SendResult.Relayed else SendResult.Failed
+        Log.d(TAG, "[$host] tx transmitida")
+        return SendResult.Relayed
     }
+
+    fun sendTransaction(tx: Transaction): SendResult = sendTransactionFast(tx)
 
     private fun parseRejectReason(payload: ByteArray): String {
         return runCatching {
@@ -197,13 +172,16 @@ class P2PClient(
     var peerStartHeight: Int = 0
         private set
 
-    suspend fun handshake(): Boolean {
+    suspend fun handshake(): Boolean = handshakeInternal(HANDSHAKE_TIMEOUT_MS)
+
+    suspend fun handshakeForBroadcast(): Boolean = handshakeInternal(BROADCAST_HANDSHAKE_TIMEOUT_MS)
+
+    private suspend fun handshakeInternal(timeoutMs: Long): Boolean {
         var sentVerack = false
         var gotVerack = false
-        val deadline = System.currentTimeMillis() + HANDSHAKE_TIMEOUT_MS
+        val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             val msg = readMessage() ?: return false
-            Log.d(TAG, "[$host] recebeu: ${msg.command}")
             when (msg.command) {
                 "version" -> {
                     P2PMessage.parseVersionStartHeight(msg.payload)?.let { peerStartHeight = it }
@@ -217,7 +195,6 @@ class P2PClient(
             }
             if (sentVerack && gotVerack) {
                 sendSendHeaders()
-                Log.d(TAG, "[$host] handshake OK, peerHeight=$peerStartHeight")
                 return true
             }
         }
@@ -232,7 +209,11 @@ class P2PClient(
         private const val TAG = "TwoX2P2P"
         private const val CONNECT_TIMEOUT_MS = 8_000
         private const val READ_TIMEOUT_MS = 15_000
-        private const val HANDSHAKE_TIMEOUT_MS = 12_000
+        private const val HANDSHAKE_TIMEOUT_MS = 12_000L
+        private const val BROADCAST_CONNECT_TIMEOUT_MS = 4_000
+        private const val BROADCAST_READ_TIMEOUT_MS = 5_000
+        private const val BROADCAST_HANDSHAKE_TIMEOUT_MS = 5_000L
+        private const val BROADCAST_SEND_WAIT_MS = 2_000L
     }
 }
 
